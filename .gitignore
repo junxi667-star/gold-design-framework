@@ -1,0 +1,27 @@
+# Codex local review and render artifacts
+.codex-artifacts/
+.codex-tmp/
+.codex_render_candidate/
+.codex_render_project/
+
+# Build and packaged deliverables
+dist/
+
+# Runtime state and generated content
+.gold-demo-server.json
+data/ai-backend-state.json
+generated/
+
+# Dependencies and local environment
+node_modules/
+.env
+.env.*
+!.env.example
+
+# Logs, temporary files, editors, and operating systems
+*.log
+*.tmp
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
