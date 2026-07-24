@@ -1,7 +1,19 @@
-const TASK_TERMINAL_STATES = new Set(["succeeded", "failed", "cancelled"]);
+const TASK_TERMINAL_STATES = new Set([
+  "succeeded",
+  "partial_succeeded",
+  "partial_success",
+  "partially_succeeded",
+  "partial-success",
+  "failed",
+  "cancelled",
+]);
 
 export const AI_API_PATHS = Object.freeze({
   parseRequirements: "/api/ai/requirements/parse",
+  requirementStatus: "/api/ai/requirements/status",
+  requirementSchema: "/api/ai/requirements/schema",
+  requirementEvaluationCases: "/api/ai/requirements/evaluation-cases",
+  requirementEvaluate: "/api/ai/requirements/evaluate",
   generations: "/api/ai/generations",
   task: (taskId) => `/api/ai/tasks/${encodeURIComponent(taskId)}`,
   cancelTask: (taskId) => `/api/ai/tasks/${encodeURIComponent(taskId)}/cancel`,
@@ -9,7 +21,11 @@ export const AI_API_PATHS = Object.freeze({
   refineGeneration: (generationId) => `/api/ai/generations/${encodeURIComponent(generationId)}/refine`,
   resultFeedback: (resultId) => `/api/ai/results/${encodeURIComponent(resultId)}/feedback`,
   projectVersions: (projectId) => `/api/projects/${encodeURIComponent(projectId)}/versions`,
+  projectRequirements: (projectId) => `/api/projects/${encodeURIComponent(projectId)}/requirements`,
+  projectRequirement: (projectId, revisionId) => `/api/projects/${encodeURIComponent(projectId)}/requirements/${encodeURIComponent(revisionId)}`,
+  confirmProjectRequirement: (projectId, revisionId) => `/api/projects/${encodeURIComponent(projectId)}/requirements/${encodeURIComponent(revisionId)}/confirm`,
   models: "/api/ai/models",
+  providerStatus: "/api/ai/providers/status",
   promptTemplates: "/api/ai/prompt-templates",
   publishedPrompt: "/api/ai/prompt-templates/current",
   comparePrompts: "/api/ai/prompt-templates/compare",
@@ -146,6 +162,22 @@ export class HttpAiClient {
     return this.request(AI_API_PATHS.parseRequirements, { method: "POST", body: input, ...options });
   }
 
+  getRequirementParserStatus(options = {}) {
+    return this.request(AI_API_PATHS.requirementStatus, options);
+  }
+
+  getRequirementSchema(options = {}) {
+    return this.request(AI_API_PATHS.requirementSchema, options);
+  }
+
+  listRequirementEvaluationCases(options = {}) {
+    return this.request(AI_API_PATHS.requirementEvaluationCases, options).then(asItems);
+  }
+
+  evaluateRequirementParser(input = {}, options = {}) {
+    return this.request(AI_API_PATHS.requirementEvaluate, { method: "POST", body: input, ...options });
+  }
+
   createGeneration(input, options = {}) {
     return this.request(AI_API_PATHS.generations, { method: "POST", body: input, ...options });
   }
@@ -174,8 +206,28 @@ export class HttpAiClient {
     return this.request(AI_API_PATHS.projectVersions(projectId), options);
   }
 
+  createProjectRequirement(projectId, input, options = {}) {
+    return this.request(AI_API_PATHS.projectRequirements(projectId), { method: "POST", body: input, ...options });
+  }
+
+  listProjectRequirements(projectId, options = {}) {
+    return this.request(AI_API_PATHS.projectRequirements(projectId), options).then(asItems);
+  }
+
+  getProjectRequirement(projectId, revisionId, options = {}) {
+    return this.request(AI_API_PATHS.projectRequirement(projectId, revisionId), options);
+  }
+
+  confirmProjectRequirement(projectId, revisionId, input = {}, options = {}) {
+    return this.request(AI_API_PATHS.confirmProjectRequirement(projectId, revisionId), { method: "POST", body: input, ...options });
+  }
+
   listModels(options = {}) {
     return this.request(AI_API_PATHS.models, options).then(asItems);
+  }
+
+  getProviderStatus(options = {}) {
+    return this.request(AI_API_PATHS.providerStatus, options);
   }
 
   listPromptTemplates(options = {}) {
@@ -249,6 +301,65 @@ const DEMO_MODELS = Object.freeze([
     },
   },
 ]);
+
+const DEMO_DIRECTION_TEMPLATES = Object.freeze([
+  {
+    name: "方向 A｜轻雅留白",
+    description: "以克制轮廓和清晰主视觉建立易于沟通的基础方向，适合继续调整比例、细节与佩戴感。",
+    previewKey: "minimal",
+  },
+  {
+    name: "方向 B｜文化叙事",
+    description: "以主题纹样和文化线索建立层次关系，让客户能围绕寓意、装饰密度与工艺语言继续选择。",
+    previewKey: "narrative",
+  },
+  {
+    name: "方向 C｜结构新意",
+    description: "以现代结构和视觉重心形成差异化讨论起点，适合继续探索几何关系与产品识别度。",
+    previewKey: "structural",
+  },
+  {
+    name: "方向 D｜轻奢日常",
+    description: "以日常佩戴、轻量表达和精致细节为重点，兼顾辨识度与更广泛的使用场景。",
+    previewKey: "minimal",
+  },
+]);
+
+function createDemoDirections(payload, generationId, operation) {
+  const retryDirection = payload.retryDirection;
+  const count = operation === "refine" || retryDirection
+    ? 1
+    : Math.max(1, Number(payload.directionCount || 1));
+  const imagesPerDirection = operation === "refine"
+    ? 1
+    : Math.max(1, Number(payload.imagesPerDirection || 1));
+
+  return Array.from({ length: count }, (_, offset) => {
+    const directionIndex = Number(retryDirection?.directionIndex || offset + 1);
+    const template = DEMO_DIRECTION_TEMPLATES[(directionIndex - 1) % DEMO_DIRECTION_TEMPLATES.length];
+    const directionId = id("direction");
+    return {
+      id: directionId,
+      directionId,
+      directionIndex,
+      name: text(retryDirection?.name) || (operation === "refine" ? "已选方向｜细化版本" : template.name),
+      description: text(retryDirection?.description)
+        || (operation === "refine"
+          ? "沿用客户已选择的方向，仅对明确提出的内容继续细化。"
+          : template.description),
+      previewKey: retryDirection?.previewKey || template.previewKey,
+      status: "queued",
+      expectedImageCount: imagesPerDirection,
+      completedImages: [],
+      resultIds: [],
+      error: null,
+      retryable: false,
+      retryOfDirectionId: retryDirection?.directionId || null,
+      startedAt: null,
+      completedAt: null,
+    };
+  });
+}
 
 export class LocalAiClient {
   constructor({ database, getKnowledgeItems = () => [], now = () => Date.now() } = {}) {
@@ -343,9 +454,10 @@ export class LocalAiClient {
   async createTask(payload, { operation, retryOfTaskId = null, retryOfGenerationId = null } = {}) {
     const modelId = payload.modelConfig?.modelId || payload.modelId;
     const model = this.findModel(modelId, operation);
+    const directionCount = payload.retryDirection ? 1 : Number(payload.directionCount || 1);
     const expectedCount = operation === "refine"
       ? 1
-      : Number(payload.directionCount || 1) * Number(payload.imagesPerDirection || 1);
+      : directionCount * Number(payload.imagesPerDirection || 1);
     if (expectedCount < model.capabilities.outputCount.min || expectedCount > model.capabilities.outputCount.max) {
       throw new AiClientError(`所选模型单次支持 ${model.capabilities.outputCount.min}–${model.capabilities.outputCount.max} 个结果`, {
         code: "VALIDATION_FAILED",
@@ -360,6 +472,7 @@ export class LocalAiClient {
 
     const createdAtMs = this.now();
     const generationId = id("generation");
+    const directions = createDemoDirections(payload, generationId, operation);
     const task = {
       id: id("task"),
       generationId,
@@ -369,6 +482,7 @@ export class LocalAiClient {
       currentStep: "等待本地演示任务开始",
       progress: 0,
       expectedCount,
+      directions,
       completedImages: [],
       resultIds: [],
       error: null,
@@ -414,14 +528,19 @@ export class LocalAiClient {
     }
     const createdAt = iso(this.now());
     const results = [];
-    const previewKeys = ["minimal", "narrative", "structural", "minimal", "narrative", "structural"];
+    const imagesPerDirection = task.operation === "refine"
+      ? 1
+      : Math.max(1, Number(task.payload.imagesPerDirection || 1));
+    const taskDirections = task.directions?.length
+      ? task.directions
+      : createDemoDirections(task.payload, task.generationId, task.operation);
     for (let index = 0; index < task.expectedCount; index += 1) {
-      const directionIndex = task.operation === "refine"
-        ? 1
-        : Math.floor(index / Number(task.payload.imagesPerDirection || 1)) + 1;
+      const directionOffset = Math.floor(index / imagesPerDirection);
+      const direction = taskDirections[directionOffset];
+      const directionIndex = direction?.directionIndex || directionOffset + 1;
       const imageIndex = task.operation === "refine"
         ? 1
-        : index % Number(task.payload.imagesPerDirection || 1) + 1;
+        : index % imagesPerDirection + 1;
       const result = {
         id: id("result"),
         versionId: id("ai-version"),
@@ -430,35 +549,65 @@ export class LocalAiClient {
         sourceTaskId: task.id,
         parentVersionId: task.parentVersionId,
         parentResultId: task.parentResultId,
+        directionId: direction?.directionId || direction?.id || `direction-${directionIndex}`,
         directionIndex,
+        directionName: direction?.name || `方向 ${directionIndex}`,
+        directionDescription: direction?.description || "等待继续补充方向说明。",
         imageIndex,
-        title: task.operation === "refine" ? "细化占位结果" : `方向 ${directionIndex} · 结果 ${imageIndex}`,
+        title: task.operation === "refine"
+          ? `${direction?.name || "已选方向"} · 细化占位结果`
+          : `${direction?.name || `方向 ${directionIndex}`} · 结果 ${imageIndex}`,
         status: "succeeded",
         imageUrl: null,
-        previewKey: previewKeys[index % previewKeys.length],
+        previewKey: direction?.previewKey || "minimal",
         isDemoPlaceholder: true,
         modelSnapshot: clone(task.modelSnapshot),
         promptVersionId: task.promptVersionId,
         knowledgeRevisionIds: [...task.knowledgeRevisionIds],
         requirementRevisionId: task.requirementRevisionId,
         customerChangeRequest: text(task.payload.customerChangeRequest),
+        latencyMs: Math.max(0, this.now() - new Date(task.startedAt || task.createdAt).getTime()),
         createdAt,
       };
       await this.database.put("aiResults", result);
       results.push(result);
     }
+    const completedImages = results.map((item) => ({
+      id: item.id,
+      resultId: item.id,
+      versionId: item.versionId,
+      generationId: item.generationId,
+      directionId: item.directionId,
+      directionIndex: item.directionIndex,
+      directionName: item.directionName,
+      directionDescription: item.directionDescription,
+      imageIndex: item.imageIndex,
+      title: item.title,
+      status: item.status,
+      imageUrl: item.imageUrl,
+      previewKey: item.previewKey,
+      isDemoPlaceholder: true,
+      modelSnapshot: clone(item.modelSnapshot),
+      latencyMs: item.latencyMs,
+      createdAt: item.createdAt,
+    }));
+    const completedDirections = taskDirections.map((direction) => {
+      const directionImages = completedImages.filter((item) => item.directionId === direction.directionId);
+      return {
+        ...direction,
+        status: "succeeded",
+        completedImages: directionImages,
+        resultIds: directionImages.map((item) => item.resultId),
+        retryable: false,
+        startedAt: task.startedAt || task.createdAt,
+        completedAt: createdAt,
+      };
+    });
     return {
       ...task,
       resultIds: results.map((item) => item.id),
-      completedImages: results.map((item) => ({
-        resultId: item.id,
-        versionId: item.versionId,
-        generationId: item.generationId,
-        title: item.title,
-        imageUrl: item.imageUrl,
-        previewKey: item.previewKey,
-        isDemoPlaceholder: true,
-      })),
+      directions: completedDirections,
+      completedImages,
     };
   }
 
@@ -466,6 +615,36 @@ export class LocalAiClient {
     let task = await this.database.get("aiTasks", taskId);
     if (!task) {
       throw new AiClientError("任务不存在", { code: "NOT_FOUND" });
+    }
+    if (!task.directions?.length) {
+      const recoveredDirections = createDemoDirections(task.payload ?? {}, task.generationId, task.operation);
+      task = {
+        ...task,
+        directions: recoveredDirections.map((direction) => {
+          const completedImages = (task.completedImages ?? []).filter((image) => (
+            image.directionId === direction.directionId
+            || Number(image.directionIndex) === Number(direction.directionIndex)
+          ));
+          const status = completedImages.length
+            ? "succeeded"
+            : task.status === "failed"
+              ? "failed"
+              : task.status === "cancelled"
+                ? "cancelled"
+                : task.status;
+          return {
+            ...direction,
+            status,
+            completedImages,
+            resultIds: completedImages.map((image) => image.resultId || image.id).filter(Boolean),
+            error: status === "failed" ? task.error : null,
+            retryable: status === "failed" || status === "cancelled",
+            startedAt: task.startedAt,
+            completedAt: isTaskTerminal(task.status) ? task.completedAt : null,
+          };
+        }),
+      };
+      await this.database.put("aiTasks", task);
     }
     if (TASK_TERMINAL_STATES.has(task.status)) {
       return task;
@@ -480,6 +659,12 @@ export class LocalAiClient {
           status: "cancelled",
           currentStep: "任务已取消",
           retryable: true,
+          directions: task.directions.map((direction) => ({
+            ...direction,
+            status: "cancelled",
+            retryable: true,
+            completedAt: iso(nowMs),
+          })),
           completedAt: iso(nowMs),
           updatedAt: iso(nowMs),
         };
@@ -507,6 +692,11 @@ export class LocalAiClient {
         status: "running",
         currentStep,
         progress,
+        directions: task.directions.map((direction) => ({
+          ...direction,
+          status: "running",
+          startedAt: direction.startedAt || task.startedAt || iso(nowMs),
+        })),
         startedAt: task.startedAt || iso(nowMs),
         updatedAt: iso(nowMs),
       };
@@ -525,6 +715,10 @@ export class LocalAiClient {
       ...task,
       status: "cancel_requested",
       currentStep: "正在取消",
+      directions: task.directions.map((direction) => ({
+        ...direction,
+        status: new Set(["queued", "running"]).has(direction.status) ? "cancel_requested" : direction.status,
+      })),
       cancelRequestedAt: iso(this.now()),
       updatedAt: iso(this.now()),
     };
@@ -532,12 +726,44 @@ export class LocalAiClient {
     return updated;
   }
 
-  async retryTask(taskId) {
+  async retryTask(taskId, input = {}) {
     const task = await this.getTask(taskId);
-    if (!new Set(["failed", "cancelled"]).has(task.status) || !task.retryable) {
+    const directionId = text(input.directionId || input.failedDirectionId);
+    const retryDirection = directionId
+      ? task.directions?.find((direction) => (
+        direction.directionId === directionId
+        || direction.id === directionId
+        || Number(direction.directionIndex) === Number(input.directionIndex)
+      ))
+      : null;
+    const taskCanRetry = new Set([
+      "failed",
+      "cancelled",
+      "partial_succeeded",
+      "partial_success",
+      "partially_succeeded",
+      "partial-success",
+    ]).has(task.status) && (task.retryable || retryDirection?.retryable);
+    if (!taskCanRetry) {
       throw new AiClientError("当前任务状态不可重试", { code: "INVALID_TASK_STATE" });
     }
-    return this.createTask({ ...task.payload, rootTaskId: task.rootTaskId }, {
+    if (directionId && (!retryDirection || !new Set(["failed", "cancelled"]).has(retryDirection.status))) {
+      throw new AiClientError("所选方向不是可重试的失败方向", { code: "INVALID_DIRECTION_STATE" });
+    }
+    return this.createTask({
+      ...task.payload,
+      rootTaskId: task.rootTaskId,
+      ...(retryDirection ? {
+        directionCount: 1,
+        retryDirection: {
+          directionId: retryDirection.directionId || retryDirection.id,
+          directionIndex: retryDirection.directionIndex,
+          name: retryDirection.name,
+          description: retryDirection.description,
+          previewKey: retryDirection.previewKey,
+        },
+      } : {}),
+    }, {
       operation: task.operation,
       retryOfTaskId: task.id,
       retryOfGenerationId: task.generationId,
@@ -622,6 +848,15 @@ export class LocalAiClient {
 
   async listModels() {
     return clone(DEMO_MODELS);
+  }
+
+  async getProviderStatus() {
+    return {
+      provider: "local-demo",
+      configured: true,
+      reachable: true,
+      isDemo: true,
+    };
   }
 
   async ensurePromptSeed() {

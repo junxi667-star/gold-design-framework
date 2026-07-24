@@ -20,7 +20,7 @@
       <div class="hero-copy">
         <div class="brand-line">
           <span class="brand-seal" aria-hidden="true">AU</span>
-          <p class="eyebrow">GOLD INTELLIGENCE · INTERFACE FRAMEWORK V0.4</p>
+          <p class="eyebrow">GOLD INTELLIGENCE · INTERFACE FRAMEWORK V0.5</p>
         </div>
         <h1>
           <span>黄金产业</span>
@@ -83,13 +83,13 @@
           <strong>当前能力边界</strong>
         </div>
       </div>
-      <p>已加入 AI 接口工作台与本地任务模拟；默认仍不联网、不真实生成图片、不识别照片、不做 OCR、不训练模型。</p>
+      <p>本地演示默认不联网；只有手动启用同源 API，且后端确认 ComfyUI、模型与工作流全部就绪时，才会调用真实图片生成。</p>
       <div class="boundary-tags" aria-label="未接入能力">
-        <span>不联网</span>
+        <span>默认不联网</span>
         <span>不识图</span>
         <span>无 OCR</span>
         <span>不训练</span>
-        <span>非真实生成</span>
+        <span>演示图有标识</span>
       </div>
     </div>
 
@@ -260,7 +260,7 @@
         </div>
 
         <div class="notice-box ai-boundary-note" role="note">
-          本地模式只演示接口、任务、反馈和父版本关系，不生成真实图片，也不会在远端失败后自动降级。切换“同源后端 API”后，请求仅发送到当前站点的 <code>/api</code>。
+          本地模式保留原有 IndexedDB 与占位流程，不生成真实图片。切换“同源后端 API”后，请求仅发送到当前站点的 <code>/api</code>；后端失败会原样显示，不会静默伪装成本地生成。新版三方向数据返回后会自动按方向名称、说明和状态分别呈现。
         </div>
 
         <div class="ai-requirement-layout">
@@ -425,7 +425,14 @@
             <p>前端当前使用轮询；终态后自动停止。</p>
           </div>
           <div class="ai-task-list" id="ai-task-list"></div>
-          <div class="ai-results-grid" id="ai-results-grid"></div>
+          <div class="direction-results-toolbar" aria-live="polite">
+            <div>
+              <span>方向结果</span>
+              <strong id="ai-results-summary">等待生成方向</strong>
+            </div>
+            <div class="selected-direction-summary" id="ai-selected-direction">尚未选择方向</div>
+          </div>
+          <div class="ai-results-grid" id="ai-results-grid" aria-live="polite"></div>
         </section>
 
         <div class="ai-action-layout">

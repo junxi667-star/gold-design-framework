@@ -292,7 +292,7 @@ async function renderKnowledge() {
 function renderCapabilities() {
   const labels = {
     externalNetwork: ["外部联网", "首版关闭"],
-    realImageGeneration: ["真实图片生成", "首版关闭"],
+    realImageGeneration: ["真实图片生成", "需同源后端与可达模型"],
     photoRecognition: ["照片识别", "首版关闭"],
     ocr: ["OCR 文本识别", "首版关闭"],
     modelTraining: ["模型训练", "首版关闭"],
@@ -337,6 +337,34 @@ async function saveActiveProject() {
   } else {
     projects.push(activeProject);
   }
+}
+
+async function selectAiProjectDirection(selection) {
+  const project = projects.find((item) => item.id === selection.projectId);
+  if (!project?.directions?.length) {
+    return { persisted: false, reason: "legacy_project_has_no_directions" };
+  }
+  const legacyDirection = project.directions.find((direction) => direction.id === selection.directionId)
+    || project.directions.find((direction) => Number(direction.slot) === Number(selection.directionIndex))
+    || project.directions[Number(selection.directionIndex) - 1];
+  if (!legacyDirection) {
+    return { persisted: false, reason: "legacy_direction_not_found" };
+  }
+  const updated = project.selectedDirectionId === legacyDirection.id
+    ? project
+    : selectDirection(project, legacyDirection.id);
+  await database.put("projects", updated);
+  projects = projects.map((item) => item.id === updated.id ? updated : item);
+  if (activeProject?.id === updated.id) {
+    activeProject = updated;
+    renderDesign();
+  }
+  const version = [...(updated.versions ?? [])].at(-1);
+  return {
+    persisted: true,
+    selectedDirectionId: legacyDirection.id,
+    versionId: version?.id || null,
+  };
 }
 
 briefForm.addEventListener("submit", async (event) => {
@@ -578,10 +606,23 @@ knowledgeList.addEventListener("click", async (event) => {
   }
 });
 
+function activateView(viewName) {
+  const selectedButton = [...document.querySelectorAll(".nav-button")]
+    .find((button) => button.dataset.view === viewName);
+  if (!selectedButton) return false;
+  document.querySelectorAll(".nav-button").forEach((item) => {
+    item.classList.toggle("is-active", item === selectedButton);
+  });
+  document.querySelectorAll(".view").forEach((view) => {
+    view.classList.toggle("is-active", view.id === `view-${viewName}`);
+  });
+  selectedButton.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+  return true;
+}
+
 document.querySelectorAll(".nav-button").forEach((button) => {
   button.addEventListener("click", () => {
-    document.querySelectorAll(".nav-button").forEach((item) => item.classList.toggle("is-active", item === button));
-    document.querySelectorAll(".view").forEach((view) => view.classList.toggle("is-active", view.id === `view-${button.dataset.view}`));
+    activateView(button.dataset.view);
   });
 });
 
@@ -616,7 +657,11 @@ async function initialize() {
       getProjects: () => [...projects],
       getKnowledgeItems: () => [...knowledgeItems],
       showToast,
+      selectProjectDirection: selectAiProjectDirection,
     });
+    const requestedView = new URLSearchParams(window.location.search).get("view")
+      || (demoMode ? "ai" : null);
+    if (requestedView) activateView(requestedView);
   } catch (error) {
     showToast(`初始化失败：${error.message}`, true);
   }

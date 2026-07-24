@@ -1,11 +1,13 @@
 {
   "name": "gold-design-framework",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "private": true,
   "type": "module",
   "scripts": {
     "start": "node server.js",
-    "test": "node --test"
+    "test": "node --test",
+    "check:comfyui": "node scripts/check-comfyui.js",
+    "evaluate:requirements": "node scripts/run-requirement-evaluation.js"
   },
   "engines": {
     "node": ">=20"
