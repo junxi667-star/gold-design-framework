@@ -421,6 +421,116 @@ export class GoldAiService {
     return clone(state.idempotency[key] || null);
   }
 
+  async getChainConfirmationCandidate({ projectId, versionId, resultId }) {
+    const state = await this.store.read();
+    const result = state.results.find((item) => item.id === resultId);
+    if (!result) {
+      throw apiError("指定的 AI 候选结果不存在", {
+        code: "AI_RESULT_NOT_FOUND",
+        httpStatus: 404,
+      });
+    }
+    if (result.projectId !== projectId) {
+      throw apiError("resultId 不属于当前项目", {
+        code: "AI_RESULT_PROJECT_MISMATCH",
+        httpStatus: 409,
+      });
+    }
+    if (result.versionId !== versionId) {
+      throw apiError("resultId 不属于当前版本", {
+        code: "AI_RESULT_VERSION_MISMATCH",
+        httpStatus: 409,
+      });
+    }
+    if (result.status !== "succeeded") {
+      throw apiError("只有成功完成的 AI 候选结果才能确认", {
+        code: "AI_RESULT_NOT_SUCCEEDED",
+        httpStatus: 409,
+      });
+    }
+    if (
+      result.isDemoPlaceholder !== false
+      || result.provider === "local-demo"
+      || !result.imageUrl
+      || !result.imageAsset?.filename
+    ) {
+      throw apiError("占位图或没有真实归档图片的结果不能进入上链流程", {
+        code: "AI_RESULT_NOT_CHAINABLE",
+        httpStatus: 409,
+      });
+    }
+
+    const sourceTask = state.tasks.find((item) => item.id === result.sourceTaskId);
+    const sourceDirection = sourceTask?.directions?.find(
+      (item) => item.id === result.directionId,
+    );
+    if (
+      !sourceTask
+      || sourceTask.projectId !== projectId
+      || sourceTask.generationId !== result.generationId
+      || !sourceTask.resultIds?.includes(result.id)
+      || !sourceDirection?.resultIds?.includes(result.id)
+    ) {
+      throw apiError("AI 候选结果的任务来源关系不完整", {
+        code: "AI_RESULT_PROVENANCE_INVALID",
+        httpStatus: 409,
+      });
+    }
+
+    const requirementRevisionId = result.requirementRevisionId;
+    const requirement = state.requirements.find(
+      (item) => item.id === requirementRevisionId && item.projectId === projectId,
+    );
+    if (
+      !requirementRevisionId
+      || !requirement
+      || !["confirmed", "superseded"].includes(requirement.status)
+      || !requirement.confirmedAt
+    ) {
+      throw apiError("AI 候选结果没有绑定经过人工确认的需求版本", {
+        code: "REQUIREMENT_REVISION_NOT_CHAINABLE",
+        httpStatus: 409,
+      });
+    }
+
+    const hasParentVersion = Boolean(result.parentVersionId);
+    const hasParentResult = Boolean(result.parentResultId);
+    if (hasParentVersion !== hasParentResult) {
+      throw apiError("AI 候选结果的父版本来源关系不完整", {
+        code: "AI_RESULT_PARENT_PROVENANCE_INVALID",
+        httpStatus: 409,
+      });
+    }
+    if (hasParentVersion) {
+      const parentResult = state.results.find((item) => item.id === result.parentResultId);
+      if (
+        !parentResult
+        || parentResult.projectId !== projectId
+        || parentResult.versionId !== result.parentVersionId
+      ) {
+        throw apiError("AI 候选结果引用的父结果与父版本不一致", {
+          code: "AI_RESULT_PARENT_PROVENANCE_INVALID",
+          httpStatus: 409,
+        });
+      }
+    }
+
+    return clone({
+      resultId: result.id,
+      projectId: result.projectId,
+      versionId: result.versionId,
+      requirementRevisionId,
+      parentVersionId: result.parentVersionId || null,
+      parentResultId: result.parentResultId || null,
+      generationId: result.generationId,
+      sourceTaskId: result.sourceTaskId,
+      directionId: result.directionId,
+      provider: result.provider,
+      imageUrl: result.imageUrl,
+      imageAsset: result.imageAsset,
+    });
+  }
+
   saveIdempotencyRecord(key, record) {
     return this.store.update((state) => {
       if (!state.idempotency[key]) state.idempotency[key] = clone(record);

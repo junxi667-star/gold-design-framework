@@ -7,7 +7,22 @@
     "start": "node server.js",
     "test": "node --test",
     "check:comfyui": "node scripts/check-comfyui.js",
-    "evaluate:requirements": "node scripts/run-requirement-evaluation.js"
+    "evaluate:requirements": "node scripts/run-requirement-evaluation.js",
+    "web3:build": "node scripts/web3-build.js",
+    "web3:chain": "node scripts/web3-local-chain.js",
+    "web3:deploy": "node scripts/web3-deploy-registry.js",
+    "web3:smoke": "node scripts/web3-smoke.js",
+    "test:web3": "node --test test/registry.local-e2e.test.js test/web3-api.local-e2e.test.js",
+    "web3:monad:wallet:init": "node scripts/monad-testnet-wallet-init.js",
+    "web3:monad:preflight": "node scripts/monad-testnet-preflight.js",
+    "web3:monad:deploy-smoke": "node scripts/monad-testnet-deploy-and-smoke.js",
+    "web3:monad:verify": "node scripts/monad-testnet-verify.js",
+    "test:web3:monad-guards": "node --test test/monad-testnet-guards.test.js"
+  },
+  "devDependencies": {
+    "ethers": "^6.15.0",
+    "ganache": "^7.9.2",
+    "solc": "^0.8.30"
   },
   "engines": {
     "node": ">=20"

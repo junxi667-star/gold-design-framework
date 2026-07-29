@@ -3,28 +3,31 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="color-scheme" content="light" />
-    <title>黄金产业 AI 智能设计框架</title>
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#050506" />
+    <title>AURUM NEXUS · 黄金产业 AI 智能设计框架｜智能设计工作台</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
     <a class="skip-link" href="#workspace-main">跳到主要内容</a>
+    <canvas class="aurum-particles" id="aurum-particles" aria-hidden="true"></canvas>
+    <div class="cursor-aura" aria-hidden="true"></div>
     <div class="ambient-grid" aria-hidden="true"></div>
     <div class="demo-mode-banner is-hidden" id="demo-mode-banner" role="note">
       <strong>预置演示数据</strong>
       <span>仅用于展示完整交互流程，不代表黄金行业知识或真实设计结论。</span>
     </div>
 
-    <header class="site-header">
+    <header class="site-header cinematic-tilt" data-cinematic-tilt="hero">
       <div class="hero-copy">
         <div class="brand-line">
           <span class="brand-seal" aria-hidden="true">AU</span>
-          <p class="eyebrow">GOLD INTELLIGENCE · INTERFACE FRAMEWORK V0.5</p>
+          <p class="eyebrow">AURUM NEXUS · INTELLIGENT DESIGN OS V0.6</p>
         </div>
         <h1>
           <span>黄金产业</span>
-          <span class="title-accent">AI 智能设计工作台</span>
+          <span class="title-accent">AI 智能设计<span class="title-workbench">工作台</span></span>
         </h1>
         <p class="subtitle">让客户反馈形成设计版本，让专家知识经过审核后进入设计调用。</p>
         <div class="hero-meta">
@@ -34,16 +37,40 @@
           </div>
           <span class="hero-chip">双闭环架构</span>
           <span class="hero-chip">全流程留痕</span>
+          <span class="hero-chip hero-chip-future">2D → 3D 自动建模 · 规划中</span>
         </div>
+
+        <ol class="hero-flowline" aria-label="核心设计流程">
+          <li><span>01</span><strong>需求解析</strong></li>
+          <li><span>02</span><strong>AI 出图</strong></li>
+          <li><span>03</span><strong>方向选择</strong></li>
+          <li><span>04</span><strong>多轮细化</strong></li>
+          <li><span>05</span><strong>版本留痕</strong></li>
+        </ol>
       </div>
 
       <div class="hero-visual" aria-hidden="true">
+        <div class="hero-jewel-media">
+          <img
+            src="/assets/editorial-gold/pexels-24815712-hero-necklace.jpg"
+            alt=""
+            width="1800"
+            height="1202"
+            fetchpriority="high"
+            decoding="async"
+          />
+          <span class="hero-jewel-caption"><i></i> CURATED JEWELRY STUDY</span>
+        </div>
+        <div class="core-halo"></div>
+        <div class="core-radar"></div>
         <div class="orbit orbit-outer"></div>
         <div class="orbit orbit-inner"></div>
         <div class="gold-core">
           <span>Au</span>
           <small>79</small>
         </div>
+        <span class="visual-coordinate visual-coordinate-x">X 079.00</span>
+        <span class="visual-coordinate visual-coordinate-y">Y 196.97</span>
         <span class="visual-note visual-note-top">FEEDBACK LOOP</span>
         <span class="visual-note visual-note-bottom">KNOWLEDGE LOOP</span>
       </div>
@@ -101,10 +128,15 @@
       <div class="nav-actions">
         <button class="nav-button is-active" type="button" data-view="design">设计工作台</button>
         <button class="nav-button" type="button" data-view="ai">AI 任务中心</button>
+        <button class="nav-button registry-nav-button" type="button" data-view="registry">本地登记</button>
         <button class="nav-button" type="button" data-view="knowledge">专家资料</button>
         <button class="nav-button" type="button" data-view="resources">模型与提示词</button>
         <button class="nav-button" type="button" data-view="status">系统状态</button>
       </div>
+      <button class="command-trigger" id="command-trigger" type="button" aria-haspopup="dialog" aria-controls="command-palette">
+        <span>快速导航</span>
+        <kbd>Ctrl K</kbd>
+      </button>
     </nav>
 
     <main id="workspace-main">
@@ -121,6 +153,114 @@
             <li data-step="confirm">确认</li>
           </ol>
         </div>
+
+        <section
+          class="reference-gallery"
+          aria-labelledby="reference-gallery-title"
+          data-asset-role="editorial-reference"
+        >
+          <div class="reference-gallery-heading">
+            <div>
+              <p class="reference-overline">CURATED REFERENCES · 黄金灵感档案</p>
+              <h3 id="reference-gallery-title">先看见审美方向，再开始表达需求</h3>
+              <p>
+                公开许可图库的视觉参考，只用于界面氛围与审美沟通；不是本系统生成，也不是本项目的设计成果。
+              </p>
+            </div>
+            <span class="reference-boundary-badge"><i></i> EDITORIAL · NON-AI</span>
+          </div>
+
+          <div class="reference-bento">
+            <button
+              class="reference-card reference-card-featured"
+              type="button"
+              data-editorial-preview
+              data-preview-caption="黑金自然 · 构图与氛围参考（图库素材，非本系统生成）"
+              aria-label="放大查看黑金自然构图参考"
+            >
+              <img
+                src="/assets/editorial-gold/pexels-10293692-botanical-necklace.jpg"
+                alt="黑色背景中的金色长款流苏项链，与绿色植物形成对比陈列"
+                width="1400"
+                height="2100"
+                loading="lazy"
+                decoding="async"
+              />
+              <span class="reference-card-wash" aria-hidden="true"></span>
+              <span class="reference-card-copy">
+                <span class="reference-card-index">01 / COMPOSITION</span>
+                <strong>黑金自然</strong>
+                <small>构图与氛围参考</small>
+              </span>
+              <span class="reference-card-note">策展参考图 · 非本系统生成</span>
+            </button>
+
+            <button
+              class="reference-card reference-card-heritage"
+              type="button"
+              data-editorial-preview
+              data-preview-caption="传统华美 · 陈列与层次参考（图库素材，非本系统生成）"
+              aria-label="放大查看传统华美陈列参考"
+            >
+              <img
+                src="/assets/editorial-gold/pexels-12865908-heritage-set.jpg"
+                alt="黑色陈列架上的金色项链与两只手镯"
+                width="1400"
+                height="933"
+                loading="lazy"
+                decoding="async"
+              />
+              <span class="reference-card-wash" aria-hidden="true"></span>
+              <span class="reference-card-copy">
+                <span class="reference-card-index">02 / HERITAGE</span>
+                <strong>传统华美</strong>
+                <small>陈列与层次参考</small>
+              </span>
+              <span class="reference-card-note">策展参考图 · 非本系统生成</span>
+            </button>
+
+            <button
+              class="reference-card reference-card-modern"
+              type="button"
+              data-editorial-preview
+              data-preview-caption="现代线条 · 材质与细节参考（图库素材，非本系统生成）"
+              aria-label="放大查看现代线条细节参考"
+            >
+              <img
+                src="/assets/editorial-gold/pexels-12124638-modern-bracelet.jpg"
+                alt="深灰色织物表面的金色链节手链特写"
+                width="1400"
+                height="2100"
+                loading="lazy"
+                decoding="async"
+              />
+              <span class="reference-card-wash" aria-hidden="true"></span>
+              <span class="reference-card-copy">
+                <span class="reference-card-index">03 / MODERN</span>
+                <strong>现代线条</strong>
+                <small>材质与细节参考</small>
+              </span>
+              <span class="reference-card-note">策展参考图 · 非本系统生成</span>
+            </button>
+          </div>
+
+          <details class="asset-credits">
+            <summary>图片来源与许可</summary>
+            <div class="asset-credits-body">
+              <p>
+                本区与首屏、知识页图片均来自 Pexels，按其许可下载并本地托管。图片作者不代表认可或参与本项目。
+                <a href="/assets/editorial-gold/SOURCES.md" target="_blank">查看完整来源与许可台账</a>
+              </p>
+              <ul>
+                <li>首屏项链 · Anujith Rajasekharan</li>
+                <li>黑金自然 · cottonbro studio</li>
+                <li>传统华美 · krishna prasad</li>
+                <li>现代线条 · Duygu Kamar</li>
+                <li>工艺现场 · moha sour</li>
+              </ul>
+            </div>
+          </details>
+        </section>
 
         <section class="panel" id="brief-panel">
           <div class="panel-heading">
@@ -491,6 +631,445 @@
         </section>
       </section>
 
+      <section class="view registry-view" id="view-registry" aria-labelledby="registry-title">
+        <div class="section-heading registry-section-heading">
+          <div>
+            <p class="section-kicker">VERSION EVIDENCE · 双模式</p>
+            <h2 id="registry-title">设计版本登记与只读证据</h2>
+          </div>
+          <div class="registry-mode-switch" role="group" aria-label="版本登记网络模式">
+            <button class="is-active" type="button" data-registry-mode="local" aria-pressed="true">
+              <span>LOCAL EVM</span>
+              <small>本地登记</small>
+            </button>
+            <button type="button" data-registry-mode="monad" aria-pressed="false">
+              <span>MONAD TESTNET</span>
+              <small>READ ONLY</small>
+            </button>
+          </div>
+        </div>
+
+        <div id="registry-local-surface" data-registry-surface="local">
+          <div class="registry-environment-lock registry-local-environment" role="status" aria-live="polite">
+            <span class="registry-local-badge"><i aria-hidden="true"></i> LOCAL EVM</span>
+            <span class="registry-connection-state is-checking" id="registry-connection-state">正在检查本地服务</span>
+          </div>
+
+        <div class="registry-boundary-banner" role="note">
+          <span class="registry-boundary-icon" aria-hidden="true">L</span>
+          <div>
+            <strong>仅限本机开发验证</strong>
+            <p>
+              本区域不会连接 Monad 测试网或主网，也不会接触真实钱包资产。这里产生的本地链记录不等于 Monad 上链；
+              内容哈希只用于核对版本内容，不构成版权登记、原创认定、身份认证或黄金材质证明。
+            </p>
+          </div>
+        </div>
+
+        <div class="registry-workspace-grid">
+          <section class="panel registry-control-panel" aria-labelledby="registry-candidate-title">
+            <div class="panel-heading">
+              <div>
+                <span class="step-number">L1</span>
+                <h3 id="registry-candidate-title">选择候选版本</h3>
+              </div>
+              <button class="button button-small button-secondary" id="registry-import-selection" type="button">
+                读取 AI 已选方向
+              </button>
+            </div>
+
+            <p class="registry-panel-intro">
+              只会带入你在 AI 任务中心主动选择的结果。图库图片、占位图和未选择候选不会被自动确认。
+            </p>
+
+            <form id="registry-candidate-form" autocomplete="off">
+              <div class="form-grid registry-candidate-fields">
+                <label class="field">
+                  <span>当前项目 ID <b aria-hidden="true">*</b></span>
+                  <input
+                    id="registry-project-id"
+                    name="projectId"
+                    list="registry-project-options"
+                    maxlength="160"
+                    required
+                    placeholder="从 AI 选择带入，或手动填写"
+                  />
+                  <datalist id="registry-project-options"></datalist>
+                </label>
+                <label class="field">
+                  <span>候选版本 ID <b aria-hidden="true">*</b></span>
+                  <input
+                    id="registry-version-id"
+                    name="versionId"
+                    list="registry-version-options"
+                    maxlength="160"
+                    required
+                    placeholder="请选择真实候选版本"
+                  />
+                  <datalist id="registry-version-options"></datalist>
+                </label>
+                <label class="field field-wide">
+                  <span>关联结果 ID</span>
+                  <input
+                    id="registry-result-id"
+                    name="resultId"
+                    maxlength="160"
+                    placeholder="选中 AI 方向后自动带入；不可用图库素材代替"
+                  />
+                </label>
+                <details class="registry-source-details field-wide">
+                  <summary>登记源信息（确认前必须有真实图片 SHA-256）</summary>
+                  <div class="form-grid registry-source-fields">
+                    <label class="field field-wide">
+                      <span>图片 SHA-256 <b aria-hidden="true">*</b></span>
+                      <input
+                        id="registry-image-sha256"
+                        name="imageSha256"
+                        maxlength="71"
+                        pattern="(?:sha256:)?[A-Fa-f0-9]{64}"
+                        inputmode="text"
+                        spellcheck="false"
+                        placeholder="64 位十六进制摘要；不会为占位图自动生成"
+                      />
+                    </label>
+                    <label class="field">
+                      <span>父版本 ID</span>
+                      <input
+                        id="registry-parent-version-id"
+                        name="parentVersionId"
+                        maxlength="160"
+                        placeholder="V1 留空；V2 选择同项目已确认版本"
+                      />
+                    </label>
+                    <label class="field">
+                      <span>Metadata URI（可选）</span>
+                      <input
+                        id="registry-metadata-uri"
+                        name="metadataUri"
+                        maxlength="500"
+                        placeholder="留空时由后端生成 local:// URI"
+                      />
+                    </label>
+                  </div>
+                </details>
+              </div>
+            </form>
+
+            <div class="registry-selection-receipt" id="registry-selection-receipt" aria-live="polite">
+              <span class="registry-receipt-mark" aria-hidden="true">—</span>
+              <div>
+                <strong>尚未选择候选</strong>
+                <p>请先在 AI 任务中心选择一个成功结果，或填写后端已存在的项目和版本 ID。</p>
+              </div>
+            </div>
+
+            <div class="registry-action-row registry-confirm-row">
+              <button class="button button-primary" id="registry-confirm-version" type="button" disabled>
+                确认此设计版本
+              </button>
+              <span class="form-hint">确认只建立客户版本记录，不会自动登记到本地链。</span>
+            </div>
+          </section>
+
+          <aside class="panel registry-network-panel" aria-labelledby="registry-network-title">
+            <div class="panel-heading">
+              <div>
+                <span class="step-number">ENV</span>
+                <h3 id="registry-network-title">本地运行环境</h3>
+              </div>
+              <button class="button button-small button-secondary" id="registry-refresh-config" type="button">
+                重新检查
+              </button>
+            </div>
+
+            <dl class="registry-network-facts">
+              <div><dt>运行边界</dt><dd id="registry-config-mode">待连接</dd></div>
+              <div><dt>本地链</dt><dd id="registry-config-chain">待连接</dd></div>
+              <div><dt>Chain ID</dt><dd id="registry-config-chain-id">—</dd></div>
+              <div><dt>开发签名器</dt><dd id="registry-config-signer">—</dd></div>
+              <div><dt>Registry 合约</dt><dd id="registry-config-contract">—</dd></div>
+            </dl>
+
+            <div class="registry-connection-alert" id="registry-connection-alert" role="alert">
+              <strong>后端尚未连接</strong>
+              <p>确认、准备和提交按钮保持关闭；不会生成伪交易哈希或假成功记录。</p>
+            </div>
+          </aside>
+        </div>
+
+        <ol class="registry-flow" aria-label="本地登记流程状态">
+          <li class="is-current" data-registry-flow="select">
+            <span>01</span><strong>选择候选</strong><small>人工选择</small>
+          </li>
+          <li data-registry-flow="confirm">
+            <span>02</span><strong>确认版本</strong><small>链下记录</small>
+          </li>
+          <li data-registry-flow="prepare">
+            <span>03</span><strong>准备登记</strong><small>Manifest + Hash</small>
+          </li>
+          <li data-registry-flow="submit">
+            <span>04</span><strong>本地签名</strong><small>开发签名器</small>
+          </li>
+          <li data-registry-flow="verify">
+            <span>05</span><strong>重新验证</strong><small>读取本地链</small>
+          </li>
+        </ol>
+
+        <div class="registry-detail-grid">
+          <section class="panel registry-manifest-panel" aria-labelledby="registry-manifest-title">
+            <div class="panel-heading">
+              <div>
+                <span class="step-number">L2</span>
+                <h3 id="registry-manifest-title">Manifest 与内容哈希</h3>
+              </div>
+              <span class="registry-stage-pill is-idle" id="registry-prepare-status">等待版本确认</span>
+            </div>
+
+            <div class="registry-hash-card">
+              <span>CONTENT HASH</span>
+              <code id="registry-content-hash">尚未准备</code>
+              <button class="registry-copy-button" id="registry-copy-hash" type="button" disabled>复制</button>
+            </div>
+
+            <div class="registry-parent-facts">
+              <div>
+                <span>当前版本</span>
+                <strong id="registry-current-version">—</strong>
+              </div>
+              <span class="registry-parent-arrow" aria-hidden="true">←</span>
+              <div>
+                <span>父版本</span>
+                <strong id="registry-parent-version">ROOT / 未返回</strong>
+              </div>
+              <div class="registry-final-state">
+                <span>最终确认状态</span>
+                <strong id="registry-final-state">未返回</strong>
+              </div>
+            </div>
+
+            <div class="registry-manifest-shell">
+              <div class="registry-code-header">
+                <span>DesignManifestV1</span>
+                <small>后端规范化结果 · 只读预览</small>
+              </div>
+              <pre id="registry-manifest-preview" tabindex="0"><code>{
+  "state": "waiting_for_confirmed_version"
+}</code></pre>
+            </div>
+
+            <label class="check-line registry-finalize-check">
+              <input id="registry-finalize-version" type="checkbox" />
+              <span>
+                将此版本标记为最终确认版
+                <small>仅在本地链 verify 明确读回 finalized=true 后，界面才会显示“最终确认”。</small>
+              </span>
+            </label>
+
+            <div class="registry-action-row">
+              <button class="button button-primary" id="registry-prepare-registration" type="button" disabled>
+                准备本地登记
+              </button>
+              <span class="form-hint">准备只计算规范清单、哈希与交易参数，不会发送交易。</span>
+            </div>
+          </section>
+
+          <section class="panel registry-submit-panel" aria-labelledby="registry-submit-title">
+            <div class="panel-heading">
+              <div>
+                <span class="step-number">L3</span>
+                <h3 id="registry-submit-title">开发签名器确认</h3>
+              </div>
+              <span class="registry-stage-pill is-idle" id="registry-submit-status">尚未准备</span>
+            </div>
+
+            <div class="registry-signer-consent">
+              <span class="registry-consent-symbol" aria-hidden="true">⌁</span>
+              <div>
+                <strong>需要一次明确确认</strong>
+                <p>按钮只允许后端使用本地开发签名器；不请求浏览器钱包，不保存或展示私钥。</p>
+              </div>
+            </div>
+
+            <button class="button button-primary registry-sign-button" id="registry-submit-local" type="button" disabled>
+              使用本地开发签名器确认登记
+            </button>
+
+            <dl class="registry-transaction-facts">
+              <div><dt>登记状态</dt><dd id="registry-transaction-status">未提交</dd></div>
+              <div><dt>合约地址</dt><dd><code id="registry-receipt-contract">—</code></dd></div>
+              <div><dt>交易哈希</dt><dd><code id="registry-receipt-tx">—</code></dd></div>
+              <div><dt>区块号</dt><dd id="registry-receipt-block">—</dd></div>
+            </dl>
+
+            <div class="registry-verification-result is-idle" id="registry-verification-result" role="status" aria-live="polite">
+              <span aria-hidden="true">◇</span>
+              <div>
+                <strong>等待本地链回执</strong>
+                <p>只有后端返回真实本地交易回执后，才会显示 confirmed。</p>
+              </div>
+            </div>
+
+            <div class="registry-action-row">
+              <button class="button button-secondary" id="registry-verify-registration" type="button" disabled>
+                从本地链重新验证
+              </button>
+            </div>
+          </section>
+        </div>
+
+        <section class="panel registry-timeline-panel" aria-labelledby="registry-timeline-title">
+          <div class="panel-heading">
+            <div>
+              <span class="step-number">L4</span>
+              <h3 id="registry-timeline-title">本地版本关系与登记时间线</h3>
+            </div>
+            <button class="button button-small button-secondary" id="registry-refresh-timeline" type="button" disabled>
+              刷新时间线
+            </button>
+          </div>
+
+          <div class="registry-timeline-summary" id="registry-timeline-summary">
+            <span>0 个已返回记录</span>
+            <strong>选择项目后读取 V1 → V2 父关系</strong>
+          </div>
+          <div class="registry-timeline" id="registry-timeline" aria-live="polite">
+            <div class="registry-empty-state">
+              <span aria-hidden="true">◎</span>
+              <strong>尚无可验证的本地登记记录</strong>
+              <p>这里不会用预置数据填充。启动后端与本地链，并完成一次明确登记后再刷新。</p>
+            </div>
+          </div>
+        </section>
+        </div>
+
+        <section
+          class="monad-readonly-surface"
+          id="registry-monad-surface"
+          data-registry-surface="monad"
+          aria-labelledby="monad-readonly-title"
+          hidden
+        >
+          <div class="monad-readonly-hero">
+            <div class="monad-readonly-copy">
+              <div class="monad-readonly-badges">
+                <span class="monad-testnet-badge"><i aria-hidden="true"></i> MONAD TESTNET</span>
+                <span class="monad-readonly-badge">TESTNET · READ ONLY</span>
+              </div>
+              <p class="section-kicker">PUBLIC TESTNET EVIDENCE</p>
+              <h3 id="monad-readonly-title">真实测试网登记证据 · 只读</h3>
+              <p>
+                此模式只从同源后端读取已核验的公开测试网证据，不包含签名、提交、钱包或金额操作。
+                它不代表 Monad 主网、生产环境、版权登记或商业可用性。
+              </p>
+            </div>
+            <button class="button button-secondary monad-refresh-button" id="monad-evidence-refresh" type="button">
+              刷新只读证据
+            </button>
+          </div>
+
+          <div class="monad-evidence-state is-loading" id="monad-evidence-state" role="status" aria-live="polite">
+            <span class="monad-state-symbol" aria-hidden="true">⋯</span>
+            <div>
+              <strong>LOADING · 正在读取后端证据</strong>
+              <p>只有后端返回完整校验结果后，才会显示 LIVE 或 CACHED。</p>
+            </div>
+          </div>
+
+          <section class="panel monad-network-panel" aria-labelledby="monad-network-title">
+            <div class="panel-heading">
+              <div>
+                <span class="step-number">T0</span>
+                <h3 id="monad-network-title">测试网观察快照</h3>
+              </div>
+              <span class="monad-source-pill is-loading" id="monad-source-pill">LOADING</span>
+            </div>
+            <dl class="monad-network-facts">
+              <div><dt>网络</dt><dd id="monad-chain-name">—</dd></div>
+              <div><dt>Chain ID</dt><dd id="monad-chain-id">—</dd></div>
+              <div><dt>证据来源</dt><dd id="monad-source">—</dd></div>
+              <div><dt>观察区块</dt><dd id="monad-observed-block">—</dd></div>
+              <div><dt>证据时间</dt><dd id="monad-observed-at">—</dd></div>
+              <div class="monad-contract-fact">
+                <dt>DesignRegistry</dt>
+                <dd>
+                  <code id="monad-contract-address">—</code>
+                  <span class="monad-inline-actions">
+                    <button class="monad-copy-button" type="button" data-monad-copy="contract" disabled>复制</button>
+                    <a class="monad-explorer-link is-disabled" id="monad-contract-explorer" aria-disabled="true">Explorer</a>
+                  </span>
+                </dd>
+              </div>
+            </dl>
+          </section>
+
+          <section class="monad-evidence-section" aria-labelledby="monad-evidence-title">
+            <div class="panel-heading monad-evidence-heading">
+              <div>
+                <span class="step-number">T1</span>
+                <h3 id="monad-evidence-title">四项公开测试网证据</h3>
+              </div>
+              <p>卡片名称固定；状态、区块和交易哈希只来自后端证据。</p>
+            </div>
+            <div class="monad-evidence-grid" id="monad-evidence-grid">
+              <article class="monad-evidence-card is-loading" data-monad-kind="DEPLOYMENT">
+                <div class="monad-card-topline"><span>01</span><em>LOADING</em></div>
+                <h4>合约部署</h4>
+                <p>DesignRegistry</p>
+                <dl><div><dt>区块</dt><dd>—</dd></div><div><dt>Tx</dt><dd>—</dd></div></dl>
+              </article>
+              <article class="monad-evidence-card is-loading" data-monad-kind="VERSION_V1">
+                <div class="monad-card-topline"><span>02</span><em>LOADING</em></div>
+                <h4>V1 版本登记</h4>
+                <p>父版本：等待证据</p>
+                <dl><div><dt>区块</dt><dd>—</dd></div><div><dt>Tx</dt><dd>—</dd></div></dl>
+              </article>
+              <article class="monad-evidence-card is-loading" data-monad-kind="VERSION_V2">
+                <div class="monad-card-topline"><span>03</span><em>LOADING</em></div>
+                <h4>V2 版本登记</h4>
+                <p>父版本：等待证据</p>
+                <dl><div><dt>区块</dt><dd>—</dd></div><div><dt>Tx</dt><dd>—</dd></div></dl>
+              </article>
+              <article class="monad-evidence-card is-loading" data-monad-kind="FINALIZATION">
+                <div class="monad-card-topline"><span>04</span><em>LOADING</em></div>
+                <h4>V2 最终确认</h4>
+                <p>finalized：等待证据</p>
+                <dl><div><dt>区块</dt><dd>—</dd></div><div><dt>Tx</dt><dd>—</dd></div></dl>
+              </article>
+            </div>
+          </section>
+
+          <section class="panel monad-lineage-panel" aria-labelledby="monad-lineage-title">
+            <div class="panel-heading">
+              <div>
+                <span class="step-number">T2</span>
+                <h3 id="monad-lineage-title">版本父关系与最终状态</h3>
+              </div>
+              <span class="monad-checks-pill" id="monad-checks-pill">等待校验</span>
+            </div>
+            <div class="monad-lineage" id="monad-lineage">
+              <div><span>V1</span><strong id="monad-v1-parent">等待证据</strong><small>父版本</small></div>
+              <i aria-hidden="true">→</i>
+              <div><span>V2</span><strong id="monad-v2-parent">等待证据</strong><small>父版本</small></div>
+              <i aria-hidden="true">→</i>
+              <div class="monad-lineage-final"><span>FINAL</span><strong id="monad-final-state">等待证据</strong><small>最终确认</small></div>
+            </div>
+            <dl class="monad-lineage-summary">
+              <div><dt>latest</dt><dd id="monad-latest-version">—</dd></div>
+              <div><dt>final</dt><dd id="monad-final-version">—</dd></div>
+              <div><dt>versionCount</dt><dd id="monad-version-count">—</dd></div>
+              <div><dt>事件计数</dt><dd id="monad-event-counts">—</dd></div>
+            </dl>
+          </section>
+
+          <div class="monad-readonly-boundary" role="note">
+            <strong>能力边界</strong>
+            <p id="monad-boundary-copy">
+              只读证据尚未加载。测试网记录只能证明公开地址、交易和合约状态，不自动证明原创、版权、真实身份或实物材质。
+            </p>
+          </div>
+        </section>
+      </section>
+
       <section class="view" id="view-knowledge" aria-labelledby="knowledge-title">
         <div class="section-heading">
           <div>
@@ -498,6 +1077,31 @@
             <h2 id="knowledge-title">手动录入、人工审核、显式调用</h2>
           </div>
         </div>
+
+        <aside class="craft-reference-scene" data-asset-role="editorial-reference">
+          <div class="craft-reference-media">
+            <img
+              src="/assets/editorial-gold/pexels-11041197-craft-process.jpg"
+              alt="工作台上以工具处理首饰细节的双手"
+              width="1400"
+              height="932"
+              loading="lazy"
+              decoding="async"
+            />
+            <span>场景装饰图 · 非本系统生成</span>
+          </div>
+          <div class="craft-reference-copy">
+            <p>FROM CRAFT TO KNOWLEDGE</p>
+            <h3>从工艺现场，到可审核知识</h3>
+            <p>
+              专业资料先由人录入，再由专家审核，只有审核通过的内容才可被设计流程调用。
+              左侧图库照片仅用于界面氛围，不会进入资料库、检索或模型训练。
+            </p>
+            <div class="craft-reference-flow" aria-label="专家知识流程">
+              <span>人工录入</span><i aria-hidden="true"></i><span>专家审核</span><i aria-hidden="true"></i><span>设计调用</span>
+            </div>
+          </div>
+        </aside>
 
         <div class="knowledge-layout">
           <section class="panel">
@@ -672,7 +1276,67 @@
       </section>
     </main>
 
+    <dialog class="command-palette" id="command-palette" aria-labelledby="command-palette-title">
+      <div class="command-palette-shell">
+        <div class="command-palette-header">
+          <div>
+            <span class="command-overline">AURUM COMMAND</span>
+            <h2 id="command-palette-title">前往工作区</h2>
+          </div>
+          <button class="command-close" type="button" data-command-close aria-label="关闭快速导航">×</button>
+        </div>
+        <div class="command-search">
+          <span aria-hidden="true">⌕</span>
+          <input id="command-search-input" type="search" autocomplete="off" placeholder="输入功能名称…" aria-label="搜索功能" />
+        </div>
+        <div class="command-list" role="list">
+          <button class="command-item" type="button" data-command-view="design" data-search-terms="设计 需求 方向 客户">
+            <span class="command-index">01</span>
+            <span><strong>设计工作台</strong><small>主题 → 三方向 → 多轮细化</small></span>
+            <kbd>1</kbd>
+          </button>
+          <button class="command-item" type="button" data-command-view="ai" data-search-terms="AI 出图 任务 结果 重试">
+            <span class="command-index">02</span>
+            <span><strong>AI 任务中心</strong><small>解析、生成、选择与反馈</small></span>
+            <kbd>2</kbd>
+          </button>
+          <button class="command-item" type="button" data-command-view="registry" data-search-terms="本地 登记 版本 哈希 EVM 合约 时间线">
+            <span class="command-index">03</span>
+            <span><strong>本地版本登记</strong><small>确认、清单、开发签名与验证</small></span>
+            <kbd>3</kbd>
+          </button>
+          <button class="command-item" type="button" data-command-view="knowledge" data-search-terms="专家 知识 文本 照片 审核">
+            <span class="command-index">04</span>
+            <span><strong>专家资料</strong><small>人工录入、审核与调用</small></span>
+            <kbd>4</kbd>
+          </button>
+          <button class="command-item" type="button" data-command-view="resources" data-search-terms="模型 提示词 prompt 版本">
+            <span class="command-index">05</span>
+            <span><strong>模型与提示词</strong><small>动态目录与版本治理</small></span>
+            <kbd>5</kbd>
+          </button>
+          <button class="command-item" type="button" data-command-view="status" data-search-terms="系统 状态 能力 边界">
+            <span class="command-index">06</span>
+            <span><strong>系统状态</strong><small>真实能力与本地数据</small></span>
+            <kbd>6</kbd>
+          </button>
+        </div>
+        <p class="command-footer"><span>↑↓ 选择</span><span>Enter 前往</span><span>Esc 关闭</span></p>
+      </div>
+    </dialog>
+
+    <dialog class="image-lightbox" id="image-lightbox" aria-labelledby="image-lightbox-title">
+      <button class="lightbox-close" type="button" data-lightbox-close aria-label="关闭图片预览">×</button>
+      <figure>
+        <img id="lightbox-image" alt="" />
+        <figcaption id="image-lightbox-title">设计结果预览</figcaption>
+      </figure>
+    </dialog>
+
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
     <script type="module" src="/js/app.js"></script>
+    <script type="module" src="/js/cinematic-ui.js"></script>
+    <script type="module" src="/js/local-registry-workbench.js"></script>
+    <script type="module" src="/js/monad-readonly-workbench.js"></script>
   </body>
 </html>
