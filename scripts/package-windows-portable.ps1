@@ -46,6 +46,275 @@ function Write-Utf8NoBom {
   [System.IO.File]::WriteAllText($Path, $Content, $encoding)
 }
 
+function Invoke-GitScalar {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$SourceRoot,
+
+    [Parameter(Mandatory = $true)]
+    [string[]]$Arguments,
+
+    [Parameter(Mandatory = $true)]
+    [string]$Label,
+
+    [switch]$AllowEmpty
+  )
+  $output = @(& git -C $SourceRoot @Arguments)
+  $exitCode = $LASTEXITCODE
+  if ($exitCode -ne 0) {
+    throw "$Label failed with exit code $exitCode."
+  }
+  $value = ($output -join "`n").Trim()
+  if ((-not $AllowEmpty) -and [string]::IsNullOrWhiteSpace($value)) {
+    throw "$Label returned an empty value."
+  }
+  return $value
+}
+
+function Get-GitBuildIdentity {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$SourceRoot
+  )
+  $sourceCommit = Invoke-GitScalar `
+    -SourceRoot $SourceRoot `
+    -Arguments @("rev-parse", "HEAD") `
+    -Label "Git source commit resolution"
+  $sourceTree = Invoke-GitScalar `
+    -SourceRoot $SourceRoot `
+    -Arguments @("rev-parse", "HEAD^{tree}") `
+    -Label "Git source tree resolution"
+  $branchValue = Invoke-GitScalar `
+    -SourceRoot $SourceRoot `
+    -Arguments @("branch", "--show-current") `
+    -Label "Git source branch resolution" `
+    -AllowEmpty
+  $branch = if ([string]::IsNullOrWhiteSpace($branchValue)) {
+    $null
+  } else {
+    $branchValue
+  }
+  $commitAuthorTimestamp = Invoke-GitScalar `
+    -SourceRoot $SourceRoot `
+    -Arguments @("show", "-s", "--format=%aI", $sourceCommit) `
+    -Label "Git author timestamp resolution"
+  $commitTimestamp = Invoke-GitScalar `
+    -SourceRoot $SourceRoot `
+    -Arguments @("show", "-s", "--format=%cI", $sourceCommit) `
+    -Label "Git commit timestamp resolution"
+
+  return [pscustomobject]@{
+    SourceCommit = $sourceCommit
+    SourceTree = $sourceTree
+    Branch = $branch
+    CommitAuthorTimestamp = $commitAuthorTimestamp
+    CommitTimestamp = $commitTimestamp
+  }
+}
+
+function Assert-NoReparsePoints {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$RootPath
+  )
+  $rootItem = Get-Item -LiteralPath $RootPath -Force
+  if ($rootItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
+    throw "Archive materialization root must not be a reparse point: $RootPath"
+  }
+  $reparsePoints = @(
+    Get-ChildItem -LiteralPath $RootPath -Recurse -Force |
+      Where-Object { $_.Attributes -band [System.IO.FileAttributes]::ReparsePoint }
+  )
+  if ($reparsePoints.Count -gt 0) {
+    throw "Archive entry materialized as a reparse point: $($reparsePoints[0].FullName)"
+  }
+}
+
+function Expand-ValidatedGitArchiveZip {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$ArchivePath,
+
+    [Parameter(Mandatory = $true)]
+    [string]$DestinationRoot
+  )
+  Add-Type -AssemblyName System.IO.Compression
+
+  $resolvedArchivePath = [System.IO.Path]::GetFullPath(
+    (Resolve-Path -LiteralPath $ArchivePath).Path
+  )
+  $resolvedDestinationRoot = [System.IO.Path]::GetFullPath($DestinationRoot)
+  if (-not [System.IO.Directory]::Exists($resolvedDestinationRoot)) {
+    [System.IO.Directory]::CreateDirectory($resolvedDestinationRoot) | Out-Null
+  }
+  Assert-NoReparsePoints -RootPath $resolvedDestinationRoot
+
+  $destinationPrefix = $resolvedDestinationRoot.TrimEnd("\") + "\"
+  $seenPaths = New-Object "System.Collections.Generic.HashSet[string]" (
+    [System.StringComparer]::OrdinalIgnoreCase
+  )
+  $archiveStream = [System.IO.FileStream]::new(
+    $resolvedArchivePath,
+    [System.IO.FileMode]::Open,
+    [System.IO.FileAccess]::Read,
+    [System.IO.FileShare]::Read
+  )
+  try {
+    $archive = [System.IO.Compression.ZipArchive]::new(
+      $archiveStream,
+      [System.IO.Compression.ZipArchiveMode]::Read,
+      $false
+    )
+    try {
+      foreach ($entry in $archive.Entries) {
+        $entryName = [string]$entry.FullName
+        if (
+          [string]::IsNullOrWhiteSpace($entryName) -or
+          $entryName.IndexOf([char]0) -ge 0 -or
+          [System.IO.Path]::IsPathRooted($entryName) -or
+          $entryName.StartsWith("/") -or
+          $entryName.StartsWith("\") -or
+          $entryName.Contains(":")
+        ) {
+          throw "Unsafe absolute or invalid ZIP entry path: $entryName"
+        }
+
+        $normalizedName = $entryName.Replace("\", "/")
+        $isDirectory = $normalizedName.EndsWith("/")
+        $trimmedName = $normalizedName.TrimEnd("/")
+        $segments = @($trimmedName.Split([char]"/"))
+        if (
+          [string]::IsNullOrWhiteSpace($trimmedName) -or
+          $segments.Count -eq 0 -or
+          $segments -contains "" -or
+          $segments -contains "." -or
+          $segments -contains ".."
+        ) {
+          throw "Unsafe ZIP entry traversal path: $entryName"
+        }
+        foreach ($segment in $segments) {
+          if ($segment.EndsWith(".") -or $segment.EndsWith(" ")) {
+            throw "ZIP entry has a Windows-ambiguous path segment: $entryName"
+          }
+        }
+        if (-not $seenPaths.Add($trimmedName)) {
+          throw "Duplicate or case-colliding ZIP entry path: $entryName"
+        }
+
+        $externalAttributeBytes = [System.BitConverter]::GetBytes(
+          [int]$entry.ExternalAttributes
+        )
+        $externalAttributes = [System.BitConverter]::ToUInt32(
+          $externalAttributeBytes,
+          0
+        )
+        $unixFileType = ($externalAttributes -shr 16) -band 0xF000
+        $dosAttributes = $externalAttributes -band 0xFFFF
+        if (
+          $unixFileType -eq 0xA000 -or
+          ($dosAttributes -band [uint32][System.IO.FileAttributes]::ReparsePoint) -ne 0
+        ) {
+          throw "ZIP archive contains a reparse or symbolic-link entry: $entryName"
+        }
+        if (
+          $unixFileType -ne 0 -and
+          $unixFileType -ne 0x4000 -and
+          $unixFileType -ne 0x8000
+        ) {
+          throw "ZIP archive contains an unsupported special entry: $entryName"
+        }
+        if (
+          ($isDirectory -and $unixFileType -eq 0x8000) -or
+          ((-not $isDirectory) -and $unixFileType -eq 0x4000)
+        ) {
+          throw "ZIP entry type does not match its path form: $entryName"
+        }
+
+        $destinationPath = [System.IO.Path]::GetFullPath(
+          (Join-Path $resolvedDestinationRoot ($trimmedName.Replace("/", "\")))
+        )
+        if (-not $destinationPath.StartsWith(
+          $destinationPrefix,
+          [System.StringComparison]::OrdinalIgnoreCase
+        )) {
+          throw "ZIP entry escaped the materialization root: $entryName"
+        }
+
+        if ($isDirectory) {
+          if ([System.IO.File]::Exists($destinationPath)) {
+            throw "ZIP directory collides with an existing file: $entryName"
+          }
+          [System.IO.Directory]::CreateDirectory($destinationPath) | Out-Null
+          continue
+        }
+
+        if (
+          [System.IO.File]::Exists($destinationPath) -or
+          [System.IO.Directory]::Exists($destinationPath)
+        ) {
+          throw "ZIP file collides with an existing path: $entryName"
+        }
+        $destinationParent = [System.IO.Path]::GetDirectoryName($destinationPath)
+        [System.IO.Directory]::CreateDirectory($destinationParent) | Out-Null
+        Assert-NoReparsePoints -RootPath $resolvedDestinationRoot
+
+        $entryStream = $entry.Open()
+        try {
+          $outputStream = [System.IO.FileStream]::new(
+            $destinationPath,
+            [System.IO.FileMode]::CreateNew,
+            [System.IO.FileAccess]::Write,
+            [System.IO.FileShare]::None
+          )
+          try {
+            $entryStream.CopyTo($outputStream)
+          } finally {
+            $outputStream.Dispose()
+          }
+        } finally {
+          $entryStream.Dispose()
+        }
+      }
+    } finally {
+      $archive.Dispose()
+    }
+  } finally {
+    $archiveStream.Dispose()
+  }
+  Assert-NoReparsePoints -RootPath $resolvedDestinationRoot
+}
+
+function Assert-MaterializedGitBlob {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$SourceRoot,
+
+    [Parameter(Mandatory = $true)]
+    [string]$SourceCommit,
+
+    [Parameter(Mandatory = $true)]
+    [string]$MaterializedRoot,
+
+    [Parameter(Mandatory = $true)]
+    [string]$RelativePath
+  )
+  $materializedPath = Join-Path $MaterializedRoot ($RelativePath.Replace("/", "\"))
+  if (-not (Test-Path -LiteralPath $materializedPath -PathType Leaf)) {
+    throw "Required materialized Git-tree file is missing: $RelativePath"
+  }
+  $expectedBlob = Invoke-GitScalar `
+    -SourceRoot $SourceRoot `
+    -Arguments @("rev-parse", "$SourceCommit`:$RelativePath") `
+    -Label "Expected Git blob resolution for $RelativePath"
+  $actualBlob = Invoke-GitScalar `
+    -SourceRoot $SourceRoot `
+    -Arguments @("hash-object", "--no-filters", $materializedPath) `
+    -Label "Materialized Git blob hashing for $RelativePath"
+  if (-not $actualBlob.Equals($expectedBlob, [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw "Materialized Git-tree bytes do not match the bound blob: $RelativePath"
+  }
+}
+
 function Get-TextSha256 {
   param([Parameter(Mandatory = $true)][string]$Text)
   $bytes = [System.Text.Encoding]::UTF8.GetBytes($Text)
@@ -295,12 +564,15 @@ function Invoke-BatSyntaxSmoke {
   }
 }
 
-foreach ($requiredCommand in @("git", "tar.exe", "cmd.exe")) {
+if ($MyInvocation.InvocationName -eq ".") {
+  return
+}
+
+foreach ($requiredCommand in @("git", "cmd.exe")) {
   if (-not (Get-Command $requiredCommand -ErrorAction SilentlyContinue)) {
     throw "$requiredCommand is required to prepare the Windows package."
   }
 }
-$tarCommand = Get-Command tar.exe -ErrorAction Stop
 $cmdCommand = Get-Command cmd.exe -ErrorAction Stop
 $pnpmCommand = Get-Command pnpm -ErrorAction SilentlyContinue
 if ($null -eq $pnpmCommand) {
@@ -325,20 +597,12 @@ if (-not $cleanAtStart) {
   throw "Refusing to package a dirty Git worktree. Commit or remove all source changes first."
 }
 
-$commitSha = (& git -C $sourceRoot rev-parse HEAD).Trim()
-$treeSha = (& git -C $sourceRoot rev-parse "HEAD^{tree}").Trim()
-$branchName = (& git -C $sourceRoot branch --show-current).Trim()
-$commitAuthorTimestamp = (& git -C $sourceRoot show -s --format=%aI $commitSha).Trim()
-$commitTimestamp = (& git -C $sourceRoot show -s --format=%cI $commitSha).Trim()
-if (
-  ($LASTEXITCODE -ne 0) -or
-  (-not $commitSha) -or
-  (-not $treeSha) -or
-  (-not $commitAuthorTimestamp) -or
-  (-not $commitTimestamp)
-) {
-  throw "Unable to resolve Git build identity."
-}
+$buildIdentity = Get-GitBuildIdentity -SourceRoot $sourceRoot
+$commitSha = $buildIdentity.SourceCommit
+$treeSha = $buildIdentity.SourceTree
+$branchName = $buildIdentity.Branch
+$commitAuthorTimestamp = $buildIdentity.CommitAuthorTimestamp
+$commitTimestamp = $buildIdentity.CommitTimestamp
 $commitAuthorAtUtc = [DateTimeOffset]::Parse($commitAuthorTimestamp).UtcDateTime.ToString("o")
 $commitCommittedAtUtc = [DateTimeOffset]::Parse($commitTimestamp).UtcDateTime.ToString("o")
 
@@ -455,7 +719,7 @@ $stagingRoot = Join-Path $OutputRoot ".$packageName.build-$([guid]::NewGuid().To
 $stagedPackagePath = Join-Path $stagingRoot $packageName
 $stagedZipPath = Join-Path $stagingRoot "$packageName.zip"
 $stagedArtifactPath = Join-Path $stagingRoot "DesignRegistry.json"
-$gitArchivePath = Join-Path $stagingRoot "source-$commitSha.tar"
+$gitArchivePath = Join-Path $stagingRoot "source-$commitSha.zip"
 $gitMaterializedRoot = Join-Path $stagingRoot "git-tree"
 
 try {
@@ -463,11 +727,16 @@ try {
   New-Item -ItemType Directory -Path $gitMaterializedRoot | Out-Null
 
   Invoke-Checked -Label "Git-tree archive materialization" -Action {
-    & git -C $sourceRoot archive --format=tar --output=$gitArchivePath $commitSha
+    & git -C $sourceRoot archive --format=zip --output=$gitArchivePath $commitSha
   }
-  Invoke-Checked -Label "Git-tree archive extraction" -Action {
-    & $tarCommand.Source -xf $gitArchivePath -C $gitMaterializedRoot
-  }
+  Expand-ValidatedGitArchiveZip `
+    -ArchivePath $gitArchivePath `
+    -DestinationRoot $gitMaterializedRoot
+  Assert-MaterializedGitBlob `
+    -SourceRoot $sourceRoot `
+    -SourceCommit $commitSha `
+    -MaterializedRoot $gitMaterializedRoot `
+    -RelativePath "data/training/黄金珠宝AI需求解析训练资料V1.md"
 
   $packageMetadata = Get-Content -LiteralPath (Join-Path $gitMaterializedRoot "package.json") -Raw -Encoding UTF8 |
     ConvertFrom-Json
@@ -671,8 +940,8 @@ try {
     packageName = $packageName
     packagedAtUtc = [DateTime]::UtcNow.ToString("o")
     source = [ordered]@{
-      commit = $commitSha
-      tree = $treeSha
+      sourceCommit = $commitSha
+      sourceTree = $treeSha
       branch = $branchName
       commitAuthorAtUtc = $commitAuthorAtUtc
       commitCommittedAtUtc = $commitCommittedAtUtc
