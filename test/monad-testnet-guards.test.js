@@ -1,5 +1,10 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
 import { Interface, Transaction, ZeroAddress } from "ethers";
 
@@ -19,6 +24,7 @@ import {
   resolveSecretPaths,
 } from "../scripts/monad-testnet-common.js";
 
+const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const contractAddress = "0x0000000000000000000000000000000000001014";
 const otherAddress = "0x0000000000000000000000000000000000009999";
 const contractInterface = new Interface([
@@ -28,6 +34,96 @@ const callData = contractInterface.encodeFunctionData("confirmVersion", [
   `0x${"11".repeat(32)}`,
   `0x${"22".repeat(32)}`,
 ]);
+
+async function createNetworkBlocker() {
+  const directory = await mkdtemp(path.join(tmpdir(), "gold-guard-network-block-"));
+  const blockerPath = path.join(directory, "block-network.cjs");
+  await writeFile(
+    blockerPath,
+    [
+      'const net = require("node:net");',
+      'const http = require("node:http");',
+      'const https = require("node:https");',
+      'const blocked = () => { throw new Error("TEST_NETWORK_ACCESS_BLOCKED"); };',
+      "net.Server.prototype.listen = blocked;",
+      "net.Socket.prototype.connect = blocked;",
+      "net.connect = blocked;",
+      "net.createConnection = blocked;",
+      "http.request = blocked;",
+      "http.get = blocked;",
+      "https.request = blocked;",
+      "https.get = blocked;",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  return { directory, blockerPath };
+}
+
+function hostileEnvironment(overrides) {
+  const env = { ...process.env };
+  for (const key of [
+    "LOCAL_EVM_PORT",
+    "LOCAL_EVM_CHAIN_ID",
+    "LOCAL_EVM_RPC_URL",
+  ]) {
+    delete env[key];
+  }
+  return Object.assign(env, overrides);
+}
+
+function spawnGuardedScript(scriptName, overrides, blockerPath, timeoutMs = 5_000) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(
+      process.execPath,
+      ["--require", blockerPath, path.join(projectRoot, "scripts", scriptName)],
+      {
+        cwd: projectRoot,
+        env: hostileEnvironment(overrides),
+        windowsHide: true,
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    child.on("error", (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.on("close", (code, signal) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve({ code, signal, stdout, stderr });
+    });
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      child.kill();
+      reject(new Error(`${scriptName} did not reject hostile environment within ${timeoutMs}ms`));
+    }, timeoutMs);
+  });
+}
+
+function assertRejectedBeforeNetwork(result, expectedMessage) {
+  const output = `${result.stdout}\n${result.stderr}`;
+  assert.notEqual(result.code, 0);
+  assert.equal(result.signal, null);
+  assert.match(output, expectedMessage);
+  assert.doesNotMatch(output, /TEST_NETWORK_ACCESS_BLOCKED/);
+  assert.doesNotMatch(output, /Local development EVM listening/);
+}
 
 test("only the fixed official Monad Testnet RPC is accepted", () => {
   assert.equal(assertOfficialRpcUrl(`${MONAD_TESTNET_RPC_URL}/`), MONAD_TESTNET_RPC_URL);
@@ -196,4 +292,60 @@ test("contract writes always static-call, estimate and populate before signing",
   assert.deepEqual(order, ["staticCall", "estimateGas", "populateTransaction"]);
   assert.equal(prepared.transaction.chainId, MONAD_TESTNET_CHAIN_ID);
   assert.equal(prepared.transaction.value, 0n);
+});
+
+test("local-chain script rejects hostile port, chain and RPC before any network call", async () => {
+  const blocker = await createNetworkBlocker();
+  try {
+    const cases = [
+      [
+        { LOCAL_EVM_PORT: "9545" },
+        /Refusing local EVM start: port must be exactly 8545/,
+      ],
+      [
+        { LOCAL_EVM_CHAIN_ID: "1" },
+        /Refusing local EVM start: chainId must be exactly 31337/,
+      ],
+      [
+        { LOCAL_EVM_RPC_URL: "http:\/\/127\.0\.0\.1:9545" },
+        /Refusing local EVM start: RPC must be exactly http:\/\/127\.0\.0\.1:8545/,
+      ],
+    ];
+    for (const [environment, expectedMessage] of cases) {
+      const result = await spawnGuardedScript(
+        "web3-local-chain.js",
+        environment,
+        blocker.blockerPath,
+      );
+      assertRejectedBeforeNetwork(result, expectedMessage);
+    }
+  } finally {
+    await rm(blocker.directory, { recursive: true, force: true });
+  }
+});
+
+test("deployment script rejects hostile chain and RPC before any network call", async () => {
+  const blocker = await createNetworkBlocker();
+  try {
+    const cases = [
+      [
+        { LOCAL_EVM_CHAIN_ID: "1" },
+        /Refusing deployment: chainId must be exactly 31337/,
+      ],
+      [
+        { LOCAL_EVM_RPC_URL: "http:\/\/127\.0\.0\.1:9545" },
+        /Refusing deployment: RPC must be exactly http:\/\/127\.0\.0\.1:8545/,
+      ],
+    ];
+    for (const [environment, expectedMessage] of cases) {
+      const result = await spawnGuardedScript(
+        "web3-deploy-registry.js",
+        environment,
+        blocker.blockerPath,
+      );
+      assertRejectedBeforeNetwork(result, expectedMessage);
+    }
+  } finally {
+    await rm(blocker.directory, { recursive: true, force: true });
+  }
 });

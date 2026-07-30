@@ -1,0 +1,28 @@
+Copyright (c) 2026 Gold Design Framework project contributors.
+All rights reserved.
+
+PRIVATE AND PROPRIETARY SOFTWARE
+
+This repository and the original software, documentation, designs, and other
+materials identified as part of the Gold Design Framework project are private
+and proprietary.
+
+No permission is granted to copy, publish, sublicense, sell, redistribute,
+make publicly available, or use these project materials outside an expressly
+authorized project-team or evaluation purpose. Possession of a copy does not
+grant ownership or any broader license.
+
+Authorized recipients may run and modify the project only within the scope
+communicated by the project owner. They must preserve this notice, protect
+confidential and personal information, and must not distribute source code or
+portable packages to additional people without permission.
+
+THE PROJECT MATERIALS ARE PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE, NON-INFRINGEMENT, AVAILABILITY, ACCURACY, OR
+FITNESS FOR PRODUCTION.
+
+This notice applies only to original project materials. Third-party software,
+Node.js, dependencies, fonts, photographs, and other third-party assets remain
+subject to their own licenses and terms. See THIRD_PARTY_NOTICES.md and the
+license/source files distributed with those materials.

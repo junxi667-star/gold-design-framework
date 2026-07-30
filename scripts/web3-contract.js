@@ -8,7 +8,7 @@ const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "
 export const contractSourcePath = path.join(projectRoot, "contracts", "DesignRegistry.sol");
 
 export async function compileDesignRegistry() {
-  const source = await readFile(contractSourcePath, "utf8");
+  const source = (await readFile(contractSourcePath, "utf8")).replace(/\r\n?/g, "\n");
   const input = {
     language: "Solidity",
     sources: {

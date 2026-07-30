@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { Interface, ZeroHash } from "ethers";
+import { Interface, ZeroHash, keccak256 } from "ethers";
 
 import {
   MONAD_TESTNET_PUBLIC_EVIDENCE,
@@ -13,14 +13,16 @@ import {
 } from "../backend/monad-testnet-read-service.js";
 import { createAppServer } from "../server.js";
 
-const artifact = JSON.parse(
-  await readFile(
-    new URL("../contracts/artifacts/DesignRegistry.json", import.meta.url),
-    "utf8",
-  ),
-);
-const contractInterface = new Interface(artifact.abi);
 const expected = MONAD_TESTNET_PUBLIC_EVIDENCE;
+const contractInterface = new Interface(expected.readAbi);
+const fixtureRuntimeCode = "0x6001600055";
+const fixtureRuntimeBytes = Buffer.from(fixtureRuntimeCode.slice(2), "hex");
+const fixtureExpected = Object.freeze({
+  ...expected,
+  deployedCodeSizeBytes: fixtureRuntimeBytes.length,
+  deployedCodeKeccak256: keccak256(fixtureRuntimeCode),
+  deployedCodeSha256: createHash("sha256").update(fixtureRuntimeBytes).digest("hex"),
+});
 const v1Uri =
   "https://example.invalid/jewelchain-monad-testnet/1785313075234-a4d119f2-7eb2-4e5e-b723-08e4dcfeb567/v1.json";
 const v2Uri =
@@ -122,7 +124,7 @@ function liveFixture() {
     },
     getBlockNumber: async () => 49060000,
     getBlock: async () => ({ timestamp: 1785313200 }),
-    getCode: async () => artifact.deployedBytecode,
+    getCode: async () => fixtureRuntimeCode,
     getTransactionReceipt: async (hash) => receipts.get(hash.toLowerCase()) || null,
     getTransaction: async (hash) => transactions.get(hash.toLowerCase()) || null,
   };
@@ -185,7 +187,7 @@ test("live evidence requires and returns the complete verified public chain stat
   const { provider, contract } = liveFixture();
   const service = new MonadTestnetReadService({
     provider,
-    artifactLoader: async () => artifact,
+    publicEvidence: fixtureExpected,
     cacheLoader: async () => cachedFiles(),
     contractFactory: () => contract,
     now: () => new Date("2026-07-29T09:00:00.000Z"),
@@ -200,7 +202,7 @@ test("live evidence requires and returns the complete verified public chain stat
   assert.equal(result.stale, false);
   assert.equal(result.network.chainId, 10143);
   assert.equal(result.contract.codeStatus, "PRESENT");
-  assert.equal(result.contract.codeSizeBytes, 3507);
+  assert.equal(result.contract.codeSizeBytes, fixtureRuntimeBytes.length);
   assert.equal(result.transactions.length, 4);
   assert.deepEqual(result.transactions.map((item) => item.valueWei), ["0", "0", "0", "0"]);
   assert.deepEqual(result.transactions.map((item) => item.logCount), [0, 1, 1, 1]);
@@ -215,6 +217,22 @@ test("live evidence requires and returns the complete verified public chain stat
   });
   assert.equal(result.checks.allChecksPass, true);
   assert.equal(result.error, null);
+});
+
+test("an incorrect live runtime-code hash fails closed", async () => {
+  const { provider, contract } = liveFixture();
+  provider.getCode = async () => "0x6002600055";
+  const service = new MonadTestnetReadService({
+    provider,
+    publicEvidence: fixtureExpected,
+    cacheLoader: async () => cachedFiles(),
+    contractFactory: () => contract,
+    timeoutMs: 100,
+  });
+  await assert.rejects(service.getEvidence(), {
+    code: "MONAD_TESTNET_EVIDENCE_CONFLICT",
+    httpStatus: 502,
+  });
 });
 
 test("RPC outage may use only independently verified cached public evidence", async () => {

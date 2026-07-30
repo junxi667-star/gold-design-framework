@@ -24,7 +24,6 @@ const defaultWeb3ArtifactPath = path.join(
 );
 const defaultWorkflowPath = path.join(
   rootDir,
-  "backend",
   "workflows",
   "sdxl_base_refiner_gold_v1_api.json",
 );
@@ -203,7 +202,7 @@ export function createAppServer({
     chainId: web3ChainId,
   });
   const publicTestnetReadService = monadTestnetReadService
-    ?? new MonadTestnetReadService({ artifactPath: web3ArtifactPath });
+    ?? new MonadTestnetReadService();
   const routeApi = createApiRouter(aiService, {
     web3Service: registryService,
     monadTestnetReadService: publicTestnetReadService,
