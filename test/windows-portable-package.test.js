@@ -26,12 +26,19 @@ test("Windows package source is materialized from the bound Git tree", () => {
   assert.match(packageScript, /ls-tree -r --name-only \$commitSha/);
   assert.match(
     packageScript,
-    /archive --format=tar --output=\$gitArchivePath \$commitSha/,
+    /archive --format=zip --output=\$gitArchivePath \$commitSha/,
   );
+  assert.match(packageScript, /function Expand-ValidatedGitArchiveZip/);
+  assert.match(packageScript, /Unsafe ZIP entry traversal path/);
+  assert.match(packageScript, /ZIP entry escaped the materialization root/);
+  assert.match(packageScript, /reparse or symbolic-link entry/);
+  assert.match(packageScript, /Duplicate or case-colliding ZIP entry path/);
+  assert.match(packageScript, /function Assert-MaterializedGitBlob/);
   assert.match(
     packageScript,
-    /\$tarCommand\.Source -xf \$gitArchivePath -C \$gitMaterializedRoot/,
+    /data\/training\/黄金珠宝AI需求解析训练资料V1\.md/,
   );
+  assert.doesNotMatch(packageScript, /tar\.exe|\$tarCommand|--format=tar/);
   assert.match(packageScript, /\[string\]\$MaterializedSourceRoot/);
   assert.match(packageScript, /Join-Path \$MaterializedSourceRoot/);
   assert.match(packageScript, /-MaterializedSourceRoot \$gitMaterializedRoot/);
@@ -51,6 +58,10 @@ test("Windows package source is materialized from the bound Git tree", () => {
   assert.match(packageScript, /cleanAtStart = \$cleanAtStart/);
   assert.match(packageScript, /sourceFromGitTree = \$true/);
   assert.match(packageScript, /endClean = \$endClean/);
+  assert.match(packageScript, /sourceCommit = \$commitSha/);
+  assert.match(packageScript, /sourceTree = \$treeSha/);
+  assert.match(packageScript, /Branch = \$branch/);
+  assert.match(packageScript, /\$null/);
   assert.match(packageScript, /bitReproducibleClaim = \$false/);
   assert.match(packageScript, /Source-bound and traceable build/);
   assert.ok(
