@@ -10,6 +10,8 @@ dist/
 # Runtime state and generated content
 .gold-demo-server.json
 data/ai-backend-state.json
+data/web3-backend-state.json
+data/web3-local-runtime.json
 generated/
 
 # Dependencies and local environment
@@ -17,6 +19,13 @@ node_modules/
 .env
 .env.*
 !.env.example
+.secrets/
+*.keystore.json
+*.dpapi
+
+# Public-testnet runtime evidence (never treat as production state)
+data/web3-monad-testnet-runtime.json
+data/web3-monad-testnet-evidence.json
 
 # Logs, temporary files, editors, and operating systems
 *.log
@@ -25,3 +34,18 @@ node_modules/
 Thumbs.db
 .vscode/
 .idea/
+
+# GitHub publish safety exclusions
+/交付/
+*.docx
+*.pptx
+*.xlsx
+/.codex/
+/.codex-artifacts/
+/.codex-tmp/
+/.codex_render_candidate/
+/.codex_render_project/
+/screenshots/
+/captures/
+/runtime/
+/contracts/artifacts/

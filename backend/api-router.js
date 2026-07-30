@@ -78,7 +78,10 @@ function idempotencyKey(request) {
   return key;
 }
 
-export function createApiRouter(aiService) {
+export function createApiRouter(aiService, {
+  web3Service = null,
+  monadTestnetReadService = null,
+} = {}) {
   let idempotencyQueue = Promise.resolve();
 
   function runIdempotent(request, scope, body, action) {
@@ -166,6 +169,26 @@ export function createApiRouter(aiService) {
         sendJson(response, 200, { data: { items: aiService.getRequirementEvaluationCases() } });
         return true;
       }
+      if (method === "GET" && pathname === "/api/web3/config" && web3Service) {
+        sendJson(response, 200, { data: await web3Service.getConfig() });
+        return true;
+      }
+      if (
+        method === "GET"
+        && pathname === "/api/web3/monad-testnet/evidence"
+        && monadTestnetReadService
+      ) {
+        if ([...url.searchParams.keys()].length) {
+          throw apiError("Monad Testnet 证据接口不接受查询参数", {
+            code: "MONAD_TESTNET_EVIDENCE_PARAMS_REJECTED",
+            httpStatus: 400,
+          });
+        }
+        sendJson(response, 200, {
+          data: await monadTestnetReadService.getEvidence(),
+        });
+        return true;
+      }
 
       const taskMatch = pathname.match(/^\/api\/ai\/tasks\/([^/]+)$/);
       if (method === "GET" && taskMatch) {
@@ -193,6 +216,17 @@ export function createApiRouter(aiService) {
       if (method === "GET" && versionsMatch) {
         sendJson(response, 200, {
           data: { items: await aiService.listProjectVersions(decodeURIComponent(versionsMatch[1])) },
+        });
+        return true;
+      }
+      const chainTimelineMatch = pathname.match(
+        /^\/api\/projects\/([^/]+)\/chain-timeline$/,
+      );
+      if (method === "GET" && chainTimelineMatch && web3Service) {
+        sendJson(response, 200, {
+          data: await web3Service.getProjectTimeline(
+            decodeURIComponent(chainTimelineMatch[1]),
+          ),
         });
         return true;
       }
@@ -227,6 +261,9 @@ export function createApiRouter(aiService) {
         action = () => aiService.comparePromptVersions(body.leftVersionId, body.rightVersionId);
       } else if (pathname === "/api/knowledge/search") {
         action = () => ({ items: aiService.searchApprovedKnowledge(body) });
+      } else if (pathname === "/api/web3/registrations/prepare" && web3Service) {
+        statusCode = 201;
+        action = () => web3Service.prepareRegistration(body);
       }
 
       const cancelMatch = pathname.match(/^\/api\/ai\/tasks\/([^/]+)\/cancel$/);
@@ -263,6 +300,35 @@ export function createApiRouter(aiService) {
       const publishMatch = pathname.match(/^\/api\/ai\/prompt-templates\/([^/]+)\/publish$/);
       if (publishMatch) {
         action = () => aiService.publishPromptVersion(decodeURIComponent(publishMatch[1]), body);
+      }
+      const versionConfirmMatch = pathname.match(
+        /^\/api\/projects\/([^/]+)\/versions\/([^/]+)\/confirm$/,
+      );
+      if (versionConfirmMatch && web3Service) {
+        statusCode = 201;
+        action = () => web3Service.confirmProjectVersion(
+          decodeURIComponent(versionConfirmMatch[1]),
+          decodeURIComponent(versionConfirmMatch[2]),
+          body,
+        );
+      }
+      const localSubmitMatch = pathname.match(
+        /^\/api\/web3\/registrations\/([^/]+)\/submit-local$/,
+      );
+      if (localSubmitMatch && web3Service) {
+        action = () => web3Service.submitLocal(
+          decodeURIComponent(localSubmitMatch[1]),
+          body,
+        );
+      }
+      const registrationVerifyMatch = pathname.match(
+        /^\/api\/web3\/registrations\/([^/]+)\/verify$/,
+      );
+      if (registrationVerifyMatch && web3Service) {
+        action = () => web3Service.verifyRegistration(
+          decodeURIComponent(registrationVerifyMatch[1]),
+          body,
+        );
       }
 
       if (!action) {

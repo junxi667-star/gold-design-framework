@@ -292,6 +292,9 @@ export class AiWorkbench {
     } catch {
       // Storage may be disabled; the in-memory selection still remains visible for this session.
     }
+    window.dispatchEvent(new CustomEvent("gold-ai:direction-selected", {
+      detail: { ...selection },
+    }));
   }
 
   async switchMode(mode) {
@@ -1369,6 +1372,12 @@ export class AiWorkbench {
       description: direction.description,
       resultId: result.resultId || result.id,
       versionId: result.versionId || null,
+      imageSha256: result.imageSha256 || result.imageAsset?.sha256 || result.sha256 || null,
+      metadataUri: result.metadataUri || result.imageAsset?.metadataUri || null,
+      parentVersionId: result.parentVersionId || null,
+      isDemoPlaceholder: Boolean(result.isDemoPlaceholder || direction.isDemoPlaceholder),
+      isAcceptanceFixture: Boolean(direction.isAcceptanceFixture),
+      sourceMode: this.mode,
       selectedAt: new Date().toISOString(),
       persistence: this.mode === "remote" ? "browser_only" : "browser_indexeddb",
     };

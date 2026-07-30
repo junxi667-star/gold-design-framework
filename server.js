@@ -7,11 +7,21 @@ import { fileURLToPath } from "node:url";
 import { GoldAiService } from "./backend/ai-service.js";
 import { createApiRouter } from "./backend/api-router.js";
 import { LocalComfyUiProvider } from "./backend/local-comfyui-provider.js";
+import { MonadTestnetReadService } from "./backend/monad-testnet-read-service.js";
 import { JsonStateStore } from "./backend/state-store.js";
+import { Web3RegistryService } from "./backend/web3-registry-service.js";
 
 const rootDir = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(rootDir, "public");
 const defaultGeneratedDir = path.join(rootDir, "generated");
+const defaultWeb3StatePath = path.join(rootDir, "data", "web3-backend-state.json");
+const defaultWeb3RuntimePath = path.join(rootDir, "data", "web3-local-runtime.json");
+const defaultWeb3ArtifactPath = path.join(
+  rootDir,
+  "contracts",
+  "artifacts",
+  "DesignRegistry.json",
+);
 const defaultWorkflowPath = path.join(
   rootDir,
   "backend",
@@ -164,6 +174,13 @@ export function createAppServer({
   now,
   provider,
   demoCompletionMs,
+  web3Service,
+  monadTestnetReadService,
+  web3StatePath = process.env.GOLD_WEB3_STATE_PATH || defaultWeb3StatePath,
+  web3RuntimePath = process.env.GOLD_WEB3_RUNTIME_PATH || defaultWeb3RuntimePath,
+  web3ArtifactPath = process.env.GOLD_WEB3_ARTIFACT_PATH || defaultWeb3ArtifactPath,
+  web3RpcUrl = process.env.LOCAL_EVM_RPC_URL || "http://127.0.0.1:8545",
+  web3ChainId = Number(process.env.LOCAL_EVM_CHAIN_ID || 31337),
 } = {}) {
   const store = new JsonStateStore(statePath);
   const comfyProvider = provider ?? new LocalComfyUiProvider({
@@ -176,7 +193,21 @@ export function createAppServer({
     ...(now ? { now } : {}),
     ...(demoCompletionMs !== undefined ? { demoCompletionMs } : {}),
   });
-  const routeApi = createApiRouter(aiService);
+  const registryService = web3Service ?? new Web3RegistryService({
+    statePath: web3StatePath,
+    runtimePath: web3RuntimePath,
+    artifactPath: web3ArtifactPath,
+    generatedDir,
+    candidateResolver: (input) => aiService.getChainConfirmationCandidate(input),
+    rpcUrl: web3RpcUrl,
+    chainId: web3ChainId,
+  });
+  const publicTestnetReadService = monadTestnetReadService
+    ?? new MonadTestnetReadService({ artifactPath: web3ArtifactPath });
+  const routeApi = createApiRouter(aiService, {
+    web3Service: registryService,
+    monadTestnetReadService: publicTestnetReadService,
+  });
 
   return http.createServer(async (request, response) => {
     if (!request.url) {
