@@ -5,7 +5,9 @@ import { fileURLToPath } from "node:url";
 import { compileDesignRegistry } from "./web3-contract.js";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const outputPath = path.join(projectRoot, "contracts", "artifacts", "DesignRegistry.json");
+const outputPath = process.env.GOLD_WEB3_ARTIFACT_OUT
+  ? path.resolve(process.env.GOLD_WEB3_ARTIFACT_OUT)
+  : path.join(projectRoot, "contracts", "artifacts", "DesignRegistry.json");
 const artifact = await compileDesignRegistry();
 
 await mkdir(path.dirname(outputPath), { recursive: true });

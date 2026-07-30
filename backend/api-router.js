@@ -130,7 +130,7 @@ export function createApiRouter(aiService, {
           data: {
             status: "ok",
             service: "gold-ai-local-backend",
-            version: "0.5.0",
+            version: "0.6.0",
             timestamp: new Date().toISOString(),
             capabilities: await aiService.getCapabilities(),
           },

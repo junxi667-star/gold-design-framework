@@ -84,9 +84,10 @@ test("旧静态页面保留，模型目录只在实时健康检查通过时开�
     assert.equal(page.status, 200);
     assert.match(await page.text(), /黄金产业 AI 智能设计框架/);
 
-    const health = await jsonRequest(`${app.baseUrl}/api/health`);
-    assert.equal(health.response.status, 200);
-    assert.equal(health.payload.data.capabilities.realImageGenerationAvailable, false);
+  const health = await jsonRequest(`${app.baseUrl}/api/health`);
+  assert.equal(health.response.status, 200);
+  assert.equal(health.payload.data.version, "0.6.0");
+  assert.equal(health.payload.data.capabilities.realImageGenerationAvailable, false);
     assert.equal(health.payload.data.capabilities.imageGeneration, "explicit_placeholder_demo_only");
 
     const models = await jsonRequest(`${app.baseUrl}/api/ai/models`);

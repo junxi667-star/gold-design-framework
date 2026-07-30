@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -9,73 +10,69 @@ import {
   JsonRpcProvider,
   ZeroHash,
   getAddress,
+  keccak256,
 } from "ethers";
 
 const moduleDir = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(moduleDir, "..");
 
-export const MONAD_TESTNET_PUBLIC_EVIDENCE = Object.freeze({
-  schemaVersion: "monad-testnet-public-evidence/v1",
-  chainName: "Monad Testnet",
-  chainId: 10143,
-  rpcUrl: "https://testnet-rpc.monad.xyz",
-  explorerBaseUrl: "https://testnet.monadscan.com",
-  contractAddress: "0x017BA6A7b6d90387bc588ad6FccDf2e0FD16D8b7",
-  accountAddress: "0xC342f009A74Ba7bE34cad215B550AfAAF8ab4982",
-  designId: "0x38e7d79e7090c3a7a1122dae18d636f22d9c587af5a9eb8013ec64bc737bf2e2",
-  v1ContentHash: "0xe08aa6723a87229f955a2ea24ed13a58c6d95c86689f9f278d8150d80227a395",
-  v2ContentHash: "0x6f5448e82aab5932b09d2ddf6b93265370956fa8c79848f15d6d77739c2d0713",
-  deployedCodeSizeBytes: 3507,
-  deployedCodeSha256: "0d93b66d10dec3414aaaebc85e245b1aff15b70f5a046c0df1277a3de5731b00",
-  transactions: Object.freeze([
-    Object.freeze({
-      kind: "DEPLOYMENT",
-      displayName: "部署 DesignRegistry",
-      eventName: null,
-      transactionHash: "0x71866654b70a6c90f7ac5c9f8af0e5b6971b5ba846e5742ee1a954aa0e6d1ae5",
-      blockNumber: 49053468,
-      gasUsed: "992592",
-      valueWei: "0",
-      logCount: 0,
-    }),
-    Object.freeze({
-      kind: "VERSION_V1",
-      displayName: "登记 V1",
-      eventName: "VersionRegistered",
-      transactionHash: "0xd3ac8f3b70239acb634ec5e2b71c4c6ac6b2fb21a5a9189dfd578128a21fe039",
-      blockNumber: 49053487,
-      gasUsed: "443419",
-      valueWei: "0",
-      logCount: 1,
-    }),
-    Object.freeze({
-      kind: "VERSION_V2",
-      displayName: "登记 V2",
-      eventName: "VersionRegistered",
-      transactionHash: "0xaa2335aa88e72496b818cb5264cff86f03010328b640fa0b831d0659bba848fa",
-      blockNumber: 49053499,
-      gasUsed: "412408",
-      valueWei: "0",
-      logCount: 1,
-    }),
-    Object.freeze({
-      kind: "FINALIZATION",
-      displayName: "最终确认 V2",
-      eventName: "VersionFinalized",
-      transactionHash: "0x94ff4ef17408452566652e5ec90b20253c3898885478385a04b1cbe12c5e98fc",
-      blockNumber: 49053515,
-      gasUsed: "97974",
-      valueWei: "0",
-      logCount: 1,
-    }),
-  ]),
-});
-
-const DEFAULT_ARTIFACT_PATH = path.join(
+const DEFAULT_DEPLOYMENT_MANIFEST_PATH = path.join(
   projectRoot,
   "contracts",
-  "artifacts",
-  "DesignRegistry.json",
+  "deployments",
+  "monad-testnet-10143.json",
+);
+
+function deepFreeze(value) {
+  if (!value || typeof value !== "object" || Object.isFrozen(value)) return value;
+  for (const nested of Object.values(value)) deepFreeze(nested);
+  return Object.freeze(value);
+}
+
+function loadDeploymentManifest(filePath = DEFAULT_DEPLOYMENT_MANIFEST_PATH) {
+  const manifest = JSON.parse(readFileSync(filePath, "utf8"));
+  const runtimeCode = manifest?.deployment?.runtimeCode;
+  if (
+    manifest?.schemaVersion !== "design-registry-deployment/v1"
+    || manifest?.network?.chainId !== 10143
+    || !/^0x[a-f0-9]{40}$/i.test(manifest?.deployment?.contractAddress || "")
+    || !/^0x[a-f0-9]{64}$/i.test(manifest?.deployment?.transactionHash || "")
+    || !Number.isSafeInteger(runtimeCode?.sizeBytes)
+    || !/^0x[a-f0-9]{64}$/i.test(runtimeCode?.keccak256 || "")
+    || !/^[a-f0-9]{64}$/i.test(runtimeCode?.sha256 || "")
+    || !Array.isArray(manifest?.publicEvidence?.transactions)
+    || !Array.isArray(manifest?.readAbi)
+  ) {
+    throw new Error("Monad Testnet deployment manifest is missing required frozen identity fields");
+  }
+  return deepFreeze(manifest);
+}
+
+export const MONAD_TESTNET_DEPLOYMENT_MANIFEST = loadDeploymentManifest();
+
+function publicEvidenceFromManifest(manifest) {
+  return deepFreeze({
+    schemaVersion: "monad-testnet-public-evidence/v1",
+    chainName: manifest.network.chainName,
+    chainId: manifest.network.chainId,
+    rpcUrl: manifest.network.rpcUrl,
+    explorerBaseUrl: manifest.network.explorerBaseUrl,
+    contractAddress: manifest.deployment.contractAddress,
+    accountAddress: manifest.publicEvidence.accountAddress,
+    designId: manifest.publicEvidence.designId,
+    v1ContentHash: manifest.publicEvidence.v1ContentHash,
+    v2ContentHash: manifest.publicEvidence.v2ContentHash,
+    deployedCodeSizeBytes: manifest.deployment.runtimeCode.sizeBytes,
+    deployedCodeKeccak256: manifest.deployment.runtimeCode.keccak256,
+    deployedCodeSha256: manifest.deployment.runtimeCode.sha256,
+    deploymentManifestSchemaVersion: manifest.schemaVersion,
+    readAbi: manifest.readAbi,
+    transactions: manifest.publicEvidence.transactions,
+  });
+}
+
+export const MONAD_TESTNET_PUBLIC_EVIDENCE = publicEvidenceFromManifest(
+  MONAD_TESTNET_DEPLOYMENT_MANIFEST,
 );
 const DEFAULT_RUN_EVIDENCE_PATH = path.join(
   projectRoot,
@@ -200,7 +197,7 @@ function successChecks(eventCounts) {
   return { ...checks, allChecksPass: true };
 }
 
-function validateReceiptAndTransaction(expected, receipt, transaction) {
+function validateReceiptAndTransaction(expected, receipt, transaction, evidence) {
   if (!receipt || receipt.status !== 1) {
     throw evidenceError(
       "MONAD_TESTNET_EVIDENCE_CONFLICT",
@@ -219,7 +216,7 @@ function validateReceiptAndTransaction(expected, receipt, transaction) {
       `${expected.displayName} 携带了非零 value`,
     );
   }
-  if (!sameAddress(transaction.from, MONAD_TESTNET_PUBLIC_EVIDENCE.accountAddress)) {
+  if (!sameAddress(transaction.from, evidence.accountAddress)) {
     throw evidenceError(
       "MONAD_TESTNET_EVIDENCE_CONFLICT",
       `${expected.displayName} 的发送地址不匹配`,
@@ -228,7 +225,7 @@ function validateReceiptAndTransaction(expected, receipt, transaction) {
   if (
     expected.kind === "DEPLOYMENT"
       ? transaction.to !== null
-      : !sameAddress(transaction.to, MONAD_TESTNET_PUBLIC_EVIDENCE.contractAddress)
+      : !sameAddress(transaction.to, evidence.contractAddress)
   ) {
     throw evidenceError(
       "MONAD_TESTNET_EVIDENCE_CONFLICT",
@@ -257,11 +254,11 @@ function validateReceiptAndTransaction(expected, receipt, transaction) {
   };
 }
 
-function validateEvents(receipts, contractInterface) {
+function validateEvents(receipts, contractInterface, evidence) {
   const parsed = [];
   for (const receipt of receipts) {
     for (const log of receipt.logs) {
-      if (!sameAddress(log.address, MONAD_TESTNET_PUBLIC_EVIDENCE.contractAddress)) continue;
+      if (!sameAddress(log.address, evidence.contractAddress)) continue;
       try {
         const event = contractInterface.parseLog(log);
         if (event) parsed.push(event);
@@ -284,16 +281,16 @@ function validateEvents(receipts, contractInterface) {
   const [v1, v2] = registered;
   const finalEvent = finalized[0];
   if (
-    !sameHash(v1.args.designId, MONAD_TESTNET_PUBLIC_EVIDENCE.designId)
-    || !sameHash(v1.args.contentHash, MONAD_TESTNET_PUBLIC_EVIDENCE.v1ContentHash)
+    !sameHash(v1.args.designId, evidence.designId)
+    || !sameHash(v1.args.contentHash, evidence.v1ContentHash)
     || !sameHash(v1.args.parentContentHash, ZeroHash)
     || asNumber(v1.args.versionNumber, "V1 event versionNumber") !== 1
-    || !sameHash(v2.args.designId, MONAD_TESTNET_PUBLIC_EVIDENCE.designId)
-    || !sameHash(v2.args.contentHash, MONAD_TESTNET_PUBLIC_EVIDENCE.v2ContentHash)
-    || !sameHash(v2.args.parentContentHash, MONAD_TESTNET_PUBLIC_EVIDENCE.v1ContentHash)
+    || !sameHash(v2.args.designId, evidence.designId)
+    || !sameHash(v2.args.contentHash, evidence.v2ContentHash)
+    || !sameHash(v2.args.parentContentHash, evidence.v1ContentHash)
     || asNumber(v2.args.versionNumber, "V2 event versionNumber") !== 2
-    || !sameHash(finalEvent.args.designId, MONAD_TESTNET_PUBLIC_EVIDENCE.designId)
-    || !sameHash(finalEvent.args.contentHash, MONAD_TESTNET_PUBLIC_EVIDENCE.v2ContentHash)
+    || !sameHash(finalEvent.args.designId, evidence.designId)
+    || !sameHash(finalEvent.args.contentHash, evidence.v2ContentHash)
     || asNumber(finalEvent.args.versionNumber, "final event versionNumber") !== 2
   ) {
     throw evidenceError(
@@ -307,22 +304,22 @@ function validateEvents(receipts, contractInterface) {
   };
 }
 
-function validateVersions(v1, v2, finalRecord, latestRecord, finalHash, versionCount) {
+function validateVersions(v1, v2, finalRecord, latestRecord, finalHash, versionCount, evidence) {
   if (
-    !sameHash(v1.contentHash, MONAD_TESTNET_PUBLIC_EVIDENCE.v1ContentHash)
+    !sameHash(v1.contentHash, evidence.v1ContentHash)
     || !sameHash(v1.parentContentHash, ZeroHash)
     || asNumber(v1.versionNumber, "V1 versionNumber") !== 1
     || !v1.exists
     || v1.finalized
-    || !sameHash(v2.contentHash, MONAD_TESTNET_PUBLIC_EVIDENCE.v2ContentHash)
-    || !sameHash(v2.parentContentHash, MONAD_TESTNET_PUBLIC_EVIDENCE.v1ContentHash)
+    || !sameHash(v2.contentHash, evidence.v2ContentHash)
+    || !sameHash(v2.parentContentHash, evidence.v1ContentHash)
     || asNumber(v2.versionNumber, "V2 versionNumber") !== 2
     || !v2.exists
     || !v2.finalized
-    || !sameHash(finalRecord.contentHash, MONAD_TESTNET_PUBLIC_EVIDENCE.v2ContentHash)
+    || !sameHash(finalRecord.contentHash, evidence.v2ContentHash)
     || !finalRecord.finalized
-    || !sameHash(latestRecord.contentHash, MONAD_TESTNET_PUBLIC_EVIDENCE.v2ContentHash)
-    || !sameHash(finalHash, MONAD_TESTNET_PUBLIC_EVIDENCE.v2ContentHash)
+    || !sameHash(latestRecord.contentHash, evidence.v2ContentHash)
+    || !sameHash(finalHash, evidence.v2ContentHash)
     || asNumber(versionCount, "versionCount") !== 2
   ) {
     throw evidenceError(
@@ -332,9 +329,8 @@ function validateVersions(v1, v2, finalRecord, latestRecord, finalHash, versionC
   }
 }
 
-function cachedSnapshotFromFiles(run, verification, nowIso) {
+function cachedSnapshotFromFiles(run, verification, nowIso, expected) {
   if (!run || !verification || verification.verified !== true) return null;
-  const expected = MONAD_TESTNET_PUBLIC_EVIDENCE;
   const vector = run.syntheticTestVector;
   const receiptMap = new Map(
     (verification.transactionReceipts || []).map((item) => [lower(item.hash), item]),
@@ -420,6 +416,7 @@ function cachedSnapshotFromFiles(run, verification, nowIso) {
       address: expected.contractAddress,
       codeStatus: "PRESENT_AT_LAST_VERIFICATION",
       codeSizeBytes: expected.deployedCodeSizeBytes,
+      codeKeccak256: expected.deployedCodeKeccak256,
       codeSha256: expected.deployedCodeSha256,
       explorerUrl: explorerUrl("address", expected.contractAddress),
       deploymentTransactionHash: expected.transactions[0].transactionHash,
@@ -451,7 +448,7 @@ function cachedSnapshotFromFiles(run, verification, nowIso) {
 export class MonadTestnetReadService {
   constructor({
     provider = null,
-    artifactPath = DEFAULT_ARTIFACT_PATH,
+    publicEvidence = MONAD_TESTNET_PUBLIC_EVIDENCE,
     runEvidencePath = DEFAULT_RUN_EVIDENCE_PATH,
     verificationEvidencePath = DEFAULT_VERIFICATION_EVIDENCE_PATH,
     artifactLoader = null,
@@ -460,12 +457,11 @@ export class MonadTestnetReadService {
     now = () => new Date(),
     timeoutMs = 7000,
   } = {}) {
-    this.provider = provider || new JsonRpcProvider(MONAD_TESTNET_PUBLIC_EVIDENCE.rpcUrl);
-    this.artifactPath = artifactPath;
+    this.expected = publicEvidence;
+    this.provider = provider || new JsonRpcProvider(this.expected.rpcUrl);
     this.runEvidencePath = runEvidencePath;
     this.verificationEvidencePath = verificationEvidencePath;
-    this.artifactLoader = artifactLoader || (async () =>
-      JSON.parse(await readFile(this.artifactPath, "utf8")));
+    this.artifactLoader = artifactLoader || (async () => ({ abi: this.expected.readAbi }));
     this.cacheLoader = cacheLoader || (async () => ({
       run: await readOptionalJson(this.runEvidencePath),
       verification: await readOptionalJson(this.verificationEvidencePath),
@@ -496,14 +492,14 @@ export class MonadTestnetReadService {
   async loadCachedEvidence(nowIso) {
     try {
       const { run, verification } = await this.cacheLoader();
-      return cachedSnapshotFromFiles(run, verification, nowIso);
+      return cachedSnapshotFromFiles(run, verification, nowIso, this.expected);
     } catch {
       return null;
     }
   }
 
   async readLiveEvidence(nowIso) {
-    const expected = MONAD_TESTNET_PUBLIC_EVIDENCE;
+    const expected = this.expected;
     const rawChainId = await this.rpc(
       "eth_chainId",
       () => this.provider.send("eth_chainId", []),
@@ -559,8 +555,10 @@ export class MonadTestnetReadService {
     }
     const codeBytes = Buffer.from(code.slice(2), "hex");
     const codeSha256 = createHash("sha256").update(codeBytes).digest("hex");
+    const codeKeccak256 = keccak256(code);
     if (
       codeBytes.length !== expected.deployedCodeSizeBytes
+      || lower(codeKeccak256) !== lower(expected.deployedCodeKeccak256)
       || codeSha256 !== expected.deployedCodeSha256
     ) {
       throw evidenceError(
@@ -570,7 +568,7 @@ export class MonadTestnetReadService {
     }
 
     const receipts = receiptPairs.map(({ item, receipt, transaction }) =>
-      validateReceiptAndTransaction(item, receipt, transaction));
+      validateReceiptAndTransaction(item, receipt, transaction, expected));
     for (let index = 0; index < receipts.length; index += 1) {
       if (receipts[index].logCount !== expected.transactions[index].logCount) {
         throw evidenceError(
@@ -582,8 +580,9 @@ export class MonadTestnetReadService {
     const eventCounts = validateEvents(
       receiptPairs.map(({ receipt }) => receipt),
       contractInterface,
+      expected,
     );
-    validateVersions(v1, v2, finalRecord, latestRecord, finalHash, count);
+    validateVersions(v1, v2, finalRecord, latestRecord, finalHash, count, expected);
 
     const block = await this.rpc(
       "eth_getBlockByNumber",
@@ -627,6 +626,7 @@ export class MonadTestnetReadService {
         address: expected.contractAddress,
         codeStatus: "PRESENT",
         codeSizeBytes: codeBytes.length,
+        codeKeccak256,
         codeSha256,
         explorerUrl: explorerUrl("address", expected.contractAddress),
         deploymentTransactionHash: expected.transactions[0].transactionHash,
@@ -667,7 +667,7 @@ export class MonadTestnetReadService {
             httpStatus: 503,
             retryable: true,
             details: {
-              schemaVersion: MONAD_TESTNET_PUBLIC_EVIDENCE.schemaVersion,
+              schemaVersion: this.expected.schemaVersion,
               mode: "monad-testnet-readonly",
               evidenceStatus: "error",
               source: "none",
