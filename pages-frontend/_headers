@@ -1,0 +1,17 @@
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=()
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob: https://api.jewelchain.xyz https:; connect-src 'self' https://api.jewelchain.xyz wss://api.jewelchain.xyz https:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'
+
+/*.html
+  Cache-Control: no-store
+
+/runtime-config.js
+  Cache-Control: no-store
+
+/styles.css
+  Cache-Control: public, max-age=3600
+
+/js/*
+  Cache-Control: public, max-age=3600

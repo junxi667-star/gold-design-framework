@@ -1,31 +1,16 @@
 {
-  "name": "gold-design-framework",
-  "version": "0.6.0",
+  "name": "jewelchain-studio",
+  "version": "1.2.0",
   "private": true,
   "type": "module",
+  "description": "Offline-browsable Cloudflare Pages frontend + cloud-ready Master API + remote Image Worker orchestration for JewelChain Studio",
   "scripts": {
     "start": "node server.js",
-    "test": "node --test",
-    "check:comfyui": "node scripts/check-comfyui.js",
-    "evaluate:requirements": "node scripts/run-requirement-evaluation.js",
-    "web3:build": "node scripts/web3-build.js",
-    "web3:chain": "node scripts/web3-local-chain.js",
-    "web3:deploy": "node scripts/web3-deploy-registry.js",
-    "web3:smoke": "node scripts/web3-smoke.js",
-    "test:web3": "node --test test/registry.local-e2e.test.js test/web3-api.local-e2e.test.js",
-    "web3:monad:wallet:init": "node scripts/monad-testnet-wallet-init.js",
-    "web3:monad:preflight": "node scripts/monad-testnet-preflight.js",
-    "web3:monad:deploy-smoke": "node scripts/monad-testnet-deploy-and-smoke.js",
-    "web3:monad:verify": "node scripts/monad-testnet-verify.js",
-    "test:web3:monad-guards": "node --test test/monad-testnet-guards.test.js",
-    "package:windows": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/package-windows-portable.ps1"
-  },
-  "dependencies": {
-    "ethers": "^6.15.0",
-    "ganache": "^7.9.2"
-  },
-  "devDependencies": {
-    "solc": "^0.8.30"
+    "test": "node --test test/*.test.js",
+    "test:ark": "node scripts/test-ark.js",
+    "start:master": "node server.js",
+    "start:worker": "node worker/image-worker.js",
+    "test:worker": "node --test test/worker-broker.test.js"
   },
   "engines": {
     "node": ">=20"

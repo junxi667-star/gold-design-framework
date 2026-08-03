@@ -1,0 +1,26 @@
+JewelChain Studio v1.2.0 Hackathon Final Test Report
+Generated: 2026-08-03
+
+Automated tests: 10 / 10 passed
+
+Verified:
+- Agent V1 -> register -> V2 -> finalize workflow
+- Seedream request/response adapter and image archiving
+- EVM ABI encoding and Ethereum keccak256 vectors
+- Deterministic metadata hash and mutation sensitivity
+- Master queue, Worker claim, upload and completion
+- Expired task lease recovery
+- WebSocket worker registration and pending-task push
+- Final UI critical workflow controls
+- Final UI particle/compare/accessibility fallbacks
+- Backend JavaScript and browser JavaScript syntax
+- Master health endpoint reports v1.2.0
+- Desktop and mobile static UI rendering
+
+Not executed in this environment:
+- Paid live Seedream generation with the user's API account
+- Live MetaMask signing
+- Live Monad Testnet transaction
+- Public Cloudflare domain end-to-end browser test
+
+The original .env file was preserved byte-for-byte and was not printed or modified.
