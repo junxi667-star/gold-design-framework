@@ -1,98 +1,166 @@
-# 黄金产业 AI 智能设计框架 V0.6.0
+# JewelChain Studio v1.2.0 — Pages / Master / Worker
 
-V0.6.0 是面向团队演示和后续联调的 Windows 本地优先版本。它保留完整的设计协作闭环，并把电影感前端、同源 AI 接口框架、本地 Design Registry 和 Monad Testnet 只读核验放进同一套可审计的运行边界中。
+> Monad Playground 黑客松最终升级版：更明亮的黄金 UI、明显流动粒子特效、Cloud-ready Master / 本地 Image Worker 架构与可验证版本树。
 
-> 当前版本是框架和演示系统，不是已经训练完成的黄金设计模型，也不代表可生产、可制造、原创或版权结论。
+## v1.2.0 核心变化
 
-## 工作流程
+- `pages-frontend/` 可独立部署到 Cloudflare Pages，电脑关闭后网站仍能显示。
+- 前端通过 `runtime-config.js` 调用 `https://api.jewelchain.xyz`。
+- Master 离线时显示明确的离线状态，不再出现整站 502。
+- Master 在线而 Worker 离线时，生图任务保存在队列中；Worker 上线后自动领取。
+- Master API 新增受限 CORS，允许 `https://demo.jewelchain.xyz`。
+- 继续采用 WebSocket 主通道 + HTTP 领取/续租/上传/完成兜底。
+- gRPC 未在当前黑客松版本中实现，保留为后续生产化升级。
 
-1. 客户输入主题、原话、表单字段和参考图片信息。
-2. 系统输出可人工修改的结构化需求和缺失信息。
-3. 一个任务返回三个有名称、有说明的设计方向。
-4. 每个方向独立显示状态、模型、耗时和失败原因，可部分成功、单方向失败和单独重试。
-5. 客户选择方向后继续细化，系统保留 V1、V2、V3 的父版本关系和反馈。
-6. 专家资料经过人工录入、人工审核后，才可供设计调用。
-7. 最终版本可以在本地 Registry 演示登记，也可查看既有 Monad Testnet 公开证据。
+## 最终版亮点
 
-这形成两个相互连接的闭环：
+- 高级珠宝视觉：曜石黑、香槟金、AI 紫蓝、Monad 青色。
+- 升级动态：更明显的流动粒子、柔和连线、金色流光带、珠宝轨道、状态呼吸与滚动入场动画。
+- 完整闭环：需求 → V1 → Monad 登记 → V2 → 父版本验证 → 最终确认。
+- 新增版本拖动对比、图片大图、Hash 复制、Agent 链上问答和最终凭证下载。
+- 保留原有 `.env`、Seedream API、固定域名、Master/Worker 和 Monad 配置。
 
-- 客户反馈让设计流程逐轮收敛；
-- 审核通过的专家知识让专业依据逐步积累。
+详细演示顺序见 [`FINAL_DEMO_GUIDE.md`](./FINAL_DEMO_GUIDE.md)。
 
-## V0.6.0 包含什么
+JewelChain Studio 是一个面向 Monad Playground 黑客松的 AI 珠宝设计协作 Agent。
 
-- 电影感黄金设计前端与桌面/移动端响应式布局；
-- 需求解析、任务查询、三方向结果、细化、反馈、版本关系、模型和提示词接口框架；
-- 默认占位设计生成，以及显式启用的同源 ComfyUI 接口；
-- Windows 便携包中的本地 Ganache EVM、预编译 DesignRegistry artifact 和本地登记流程；
-- Monad Testnet 已有公开交易和版本树的只读核验页；
-- 源码绑定、依赖锁定且可追溯的 Windows x64 白名单打包脚本、构建信息和 SHA-256 清单；不声明 ZIP 字节级可复现。
+核心闭环：
 
-## 能力与联网边界
-
-- 默认本地演示不连接外部 AI，不上传客户资料，只返回明确标识的占位方向。
-- 当前项目不识别照片、不做 OCR、不训练或微调模型，也不自动联网采集专业知识。
-- 照片上传框和专家知识中心目前是录入、审核、引用框架，不等于系统已经从照片学习。
-- 只有手动配置并通过健康检查的同源 ComfyUI、有效 checkpoint 和工作流，后端才会提交真实图片生成任务；失败时不会伪装成功。
-- Windows 便携包启动的 Registry 是 `127.0.0.1` 上的本地开发链，使用确定性的开发账户，不是用户钱包，也不是 Monad。
-- Monad Testnet 页面会为了实时只读核验访问公开 RPC；不可用时必须显示缓存或失败状态，不会执行写交易。
-- 测试网记录只证明指定地址、内容哈希和时间上的公开状态；测试网可能重置，链上记录不等于版权登记、原创认定或身份认证。
-
-## 本地开发运行
-
-需要 Node.js 20 或更高版本，以及通过锁文件安装的依赖：
-
-```powershell
-pnpm install --frozen-lockfile
-pnpm start
+```text
+客户输入珠宝需求
+→ Master Agent 建立 V1 生图任务
+→ Image Worker 领取任务并调用 Seedream
+→ 图片上传回 Master，形成 V1
+→ 用户确认并通过 MetaMask 登记到 Monad
+→ 用户提出修改，生成 V2
+→ V2 记录 V1 的 parentContentHash
+→ 用户登记 V2 并设为最终确认版
+→ 时间线与 Agent 问答提供链上证据
 ```
 
-- 普通入口：`http://127.0.0.1:4173/`
-- 演示入口：`http://127.0.0.1:4173/?demo=1`
-- 健康接口：`http://127.0.0.1:4173/api/health`
-- 本地 Registry 开发链：
+## v1.2.0 架构
 
-```powershell
-pnpm run web3:chain
-pnpm run web3:deploy
+```text
+浏览器
+  │ HTTPS / HTTP
+  ▼
+Master API
+  ├─ Agent 编排
+  ├─ 任务队列
+  ├─ V1/V2 状态机
+  ├─ Metadata / Hash
+  ├─ Supabase 或本地存储
+  ├─ Monad 交易准备与验证
+  └─ Worker 调度
+       ▲
+       │ WebSocket 主通道
+       │ HTTP 轮询与回传兜底
+       ▼
+Image Worker
+  ├─ 调用现有 Seedream API
+  ├─ 下载并校验图片
+  └─ 二进制上传 Master
 ```
 
-`web3:chain` 需要保持运行。开发链和 Registry 只用于本机演示。
+本地使用时，Master 和 Worker 都运行在同一台电脑；上云后，只需要把 Master 放到云服务器，电脑继续运行 Worker。
 
-## Windows 便携包
+## 已完成
 
-打包机需要 PowerShell、Git、pnpm，以及一个完整的 Windows x64 Node.js 20+ 运行时目录。运行时目录至少要包含 `node.exe` 和 Node 自带许可证文件。
+- Seedream 真实生图；
+- Master / Image Worker 分离；
+- WebSocket 实时推送任务；
+- HTTP 注册、心跳、领取、续租、进度、上传、完成和失败兜底；
+- 任务租约、超时回收、重试、幂等与重复领取保护；
+- 图片二进制上传和 SHA-256 校验；
+- V1/V2 父子版本关系；
+- 标准 Metadata 和 Keccak-256 Hash；
+- 本地存储和可选 Supabase；
+- MetaMask + Monad Testnet；
+- Design Registry 登记与最终版本确认；
+- txHash、Receipt 和事件验证；
+- 版本时间线、Explorer、最终凭证、Agent 问答；
+- Windows 一键启动和后台 Worker 日志。
 
-仓库必须处于干净 Git 状态，然后执行：
+## 本地一键使用
 
-```powershell
-pnpm run package:windows -- -RuntimeDir "D:\path\to\node-runtime"
+1. 完整解压 ZIP。
+2. 双击 `START_JEWELCHAIN.bat`。
+3. 浏览器自动打开 `http://127.0.0.1:4173/`。
+4. 页面“生图执行端”显示 `Image Worker 在线（1）` 后开始生成。
+5. 停止时双击 `STOP_JEWELCHAIN.bat`。
+
+现有 `.env` 中的图片 API 配置已保留。不要把包含 `.env` 的压缩包上传公开 GitHub。
+
+## 单独运行
+
+Master：
+
+```text
+START_MASTER_ONLY.bat
 ```
 
-脚本只复制明示白名单中的项目文件，生成：
+Image Worker：
 
-- `dist/gold-ai-demo-win-x64-v0.6.0/`
-- `dist/gold-ai-demo-win-x64-v0.6.0.zip`
-- `dist/gold-ai-demo-win-x64-v0.6.0.zip.sha256.txt`
-
-包内包含 `BUILD_INFO.json`、`SHA256SUMS.txt`、启动/停止脚本和简明使用说明。脚本拒绝覆盖已有同名输出，也拒绝从脏工作树构建。
-
-## 验证
-
-```powershell
-pnpm test
-pnpm run evaluate:requirements
-pnpm run check:comfyui
+```text
+START_IMAGE_WORKER_ONLY.bat
 ```
 
-`evaluate:requirements` 只验证解析结构和程序流程，不输出虚假的行业准确率。`check:comfyui` 只检查本机 ComfyUI、checkpoint 和工作流是否真实就绪。
+前台调试 Worker：
 
-## 配置
+```text
+RUN_IMAGE_WORKER.bat
+```
 
-`.env.example` 只包含无密钥示例。项目不会自动加载 `.env`；启动前应在可信的本地环境中设置所需环境变量。私钥、助记词、API Key、客户附件、内部资料和运行证据不得写入仓库或便携包。
+Worker 日志：
 
-正式 ComfyUI 工作流为 `workflows/sdxl_base_refiner_gold_v1_api.json`。
+```text
+logs/image-worker.log
+```
 
-## 私有分发与第三方材料
+## 生图执行模式
 
-本项目自身代码采用私有、保留所有权利的分发声明，详见 `LICENSE` 和 `PRIVATE_DISTRIBUTION.md`。第三方运行时、依赖与图片来源不受该私有声明重新授权，详见 `THIRD_PARTY_NOTICES.md`、`public/assets/editorial-gold/SOURCES.md` 以及包内保留的对应许可证文件。
+`.env`：
+
+```env
+IMAGE_EXECUTION_MODE=worker
+```
+
+可选值：
+
+- `worker`：所有生图进入 Master 队列，由 Worker 执行；
+- `direct`：Master 直接调用图片 API；
+- `hybrid`：优先 Worker，无在线 Worker 时由 Master 直接调用 API。
+
+黑客松建议使用 `worker`；答辩保底可以使用 `hybrid`。
+
+## 未来迁移到云服务器
+
+云服务器：
+
+```env
+HOST=0.0.0.0
+PORT=4173
+IMAGE_EXECUTION_MODE=worker
+WORKER_TOKEN=与本地Worker一致的随机长Token
+```
+
+本地电脑：
+
+```env
+MASTER_BASE_URL=https://api.jewelchain.xyz
+WORKER_TOKEN=与云端一致
+ARK_API_KEY=保留在本地Worker
+```
+
+然后云端只运行 Master，本地只运行 `START_IMAGE_WORKER_ONLY.bat`。
+
+## 安全边界
+
+- Master 和网页不读取钱包私钥；
+- API Key 不会返回给浏览器；
+- 图片不通过 WebSocket/Base64 传输；
+- Worker 上传时校验 SHA-256；
+- 上链只保存 Hash、版本关系和 Metadata URI；
+- 链上记录不等于法律版权确权。
+
+完整操作见：`小白使用说明.md`。
