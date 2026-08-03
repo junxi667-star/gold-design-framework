@@ -1,0 +1,4 @@
+JewelChain Studio
+Version: 0.8.0
+Build: Windows portable / Master API + Image Worker / WebSocket + HTTP fallback / Seedream API / Monad Testnet / Optional Supabase
+No local ComfyUI required.

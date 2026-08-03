@@ -1,0 +1,27 @@
+JewelChain Studio v0.8.0 Test Report
+Generated: 2026-08-03
+
+Automated tests: 8 / 8 passed
+
+Covered:
+1. V1 -> Monad registration -> V2 -> finalization Agent flow with mocked external services.
+2. Seedream request format and image archiving with mocked HTTP responses.
+3. EVM ABI transaction encoding.
+4. Ethereum Keccak-256 known vectors.
+5. Canonical Metadata hash determinism and mutation sensitivity.
+6. Master queue -> Worker claim -> progress -> binary upload -> completion.
+7. Worker lease expiry and task reclaim by another Worker.
+8. WebSocket Worker registration and real-time task push.
+
+Additional integration check:
+- Master v0.8.0 started successfully.
+- Image Worker connected through WebSocket.
+- Worker status API reported onlineWorkers = 1.
+- HTTP fallback endpoints and binary upload path are covered by broker/router implementation and unit flow.
+
+Not executed in this environment:
+- Live paid Seedream generation using the user's API key.
+- Live MetaMask signature and Monad Testnet transaction.
+- Live Supabase upload.
+
+These external checks must be completed on the user's computer with their network, wallet and account configuration.

@@ -1,31 +1,14 @@
 import { randomUUID } from "node:crypto";
 
-import { apiError, fingerprint, iso, text } from "./utils.js";
+const BODY_LIMIT = 2 * 1024 * 1024;
 
-const BODY_LIMIT_BYTES = 2 * 1024 * 1024;
-const CONTRACT_VERSION = "1.2";
-
-function sendJson(response, statusCode, payload, extraHeaders = {}) {
-  const requestId = randomUUID();
-  const normalized = payload?.data !== undefined
-    ? {
-      ...payload,
-      meta: {
-        requestId,
-        contractVersion: CONTRACT_VERSION,
-        ...(payload.meta || {}),
-      },
-    }
-    : payload?.error
-      ? { error: { ...payload.error, requestId } }
-      : payload;
-  const body = JSON.stringify(normalized);
+function sendJson(response, statusCode, payload) {
+  const body = JSON.stringify(payload);
   response.writeHead(statusCode, {
     "Content-Type": "application/json; charset=utf-8",
     "Content-Length": Buffer.byteLength(body),
     "Cache-Control": "no-store",
     "X-Content-Type-Options": "nosniff",
-    ...extraHeaders,
   });
   response.end(body);
 }
@@ -35,11 +18,11 @@ async function readJson(request) {
   let size = 0;
   for await (const chunk of request) {
     size += chunk.length;
-    if (size > BODY_LIMIT_BYTES) {
-      throw apiError("请求内容超过 2 MB 限制", {
-        code: "PAYLOAD_TOO_LARGE",
-        httpStatus: 413,
-      });
+    if (size > BODY_LIMIT) {
+      const error = new Error("请求内容超过 2 MB 限制");
+      error.code = "PAYLOAD_TOO_LARGE";
+      error.httpStatus = 413;
+      throw error;
     }
     chunks.push(chunk);
   }
@@ -47,78 +30,76 @@ async function readJson(request) {
   try {
     return JSON.parse(Buffer.concat(chunks).toString("utf8"));
   } catch {
-    throw apiError("请求 JSON 格式无效", {
-      code: "INVALID_JSON",
-      httpStatus: 400,
-    });
+    const error = new Error("请求 JSON 格式无效");
+    error.code = "INVALID_JSON";
+    error.httpStatus = 400;
+    throw error;
   }
 }
 
-function errorPayload(error) {
-  const known = Number.isInteger(error.httpStatus);
+function requestBaseUrl(request) {
+  const forwardedProto = String(request.headers["x-forwarded-proto"] || "").split(",")[0].trim();
+  const forwardedHost = String(request.headers["x-forwarded-host"] || "").split(",")[0].trim();
+  const protocol = forwardedProto || "http";
+  const host = forwardedHost || request.headers.host || "127.0.0.1:4173";
+  return `${protocol}://${host}`;
+}
+
+function clientId(request) {
+  return String(request.headers["cf-connecting-ip"] || request.headers["x-forwarded-for"] || request.socket.remoteAddress || "unknown")
+    .split(",")[0]
+    .trim();
+}
+
+class MutationGuard {
+  constructor() {
+    this.accessCode = String(process.env.DEMO_ACCESS_CODE || "").trim();
+    this.hourlyLimit = Math.max(1, Number(process.env.DEMO_GENERATION_LIMIT_PER_HOUR || 10));
+    this.generationHits = new Map();
+  }
+
+  requireCode(request) {
+    if (!this.accessCode) return;
+    const provided = String(request.headers["x-demo-access-code"] || "");
+    if (provided !== this.accessCode) {
+      const error = new Error("演示访问码错误");
+      error.code = "INVALID_DEMO_ACCESS_CODE";
+      error.httpStatus = 401;
+      throw error;
+    }
+  }
+
+  requireGenerationQuota(request) {
+    const key = clientId(request);
+    const now = Date.now();
+    const cutoff = now - 60 * 60 * 1000;
+    const entries = (this.generationHits.get(key) || []).filter((time) => time >= cutoff);
+    if (entries.length >= this.hourlyLimit) {
+      const error = new Error(`当前设备每小时最多生成 ${this.hourlyLimit} 次，请稍后再试`);
+      error.code = "GENERATION_RATE_LIMITED";
+      error.httpStatus = 429;
+      error.retryable = true;
+      throw error;
+    }
+    entries.push(now);
+    this.generationHits.set(key, entries);
+  }
+}
+
+function errorBody(error) {
   return {
     error: {
-      code: known ? error.code || "REQUEST_FAILED" : "INTERNAL_ERROR",
-      message: known ? error.message : "本地后端发生未处理错误",
-      retryable: known ? Boolean(error.retryable) : false,
-      details: known ? error.details ?? null : null,
+      code: error.code || "INTERNAL_ERROR",
+      message: error.httpStatus ? error.message : "服务发生未处理错误",
+      retryable: Boolean(error.retryable),
+      details: error.httpStatus ? error.details ?? null : null,
+      requestId: randomUUID(),
     },
   };
 }
 
-function idempotencyKey(request) {
-  const key = text(request.headers["idempotency-key"]);
-  if (!key) return "";
-  if (key.length > 128 || !/^[A-Za-z0-9._:-]+$/.test(key)) {
-    throw apiError("Idempotency-Key 格式无效", {
-      code: "INVALID_IDEMPOTENCY_KEY",
-      httpStatus: 400,
-    });
-  }
-  return key;
-}
-
-export function createApiRouter(aiService, {
-  web3Service = null,
-  monadTestnetReadService = null,
-} = {}) {
-  let idempotencyQueue = Promise.resolve();
-
-  function runIdempotent(request, scope, body, action) {
-    const key = idempotencyKey(request);
-    if (!key) return action();
-    const requestFingerprint = fingerprint({ scope, body });
-    const execute = async () => {
-      const existing = await aiService.getIdempotencyRecord(key);
-      if (existing) {
-        if (existing.scope !== scope || existing.fingerprint !== requestFingerprint) {
-          throw apiError("同一 Idempotency-Key 已用于不同请求", {
-            code: "IDEMPOTENCY_CONFLICT",
-            httpStatus: 409,
-            details: { originalScope: existing.scope, requestedScope: scope },
-          });
-        }
-        return {
-          statusCode: existing.statusCode,
-          data: existing.data,
-          replayed: true,
-        };
-      }
-      const outcome = await action();
-      await aiService.saveIdempotencyRecord(key, {
-        scope,
-        fingerprint: requestFingerprint,
-        statusCode: outcome.statusCode,
-        data: outcome.data,
-        createdAt: iso(),
-      });
-      return { ...outcome, replayed: false };
-    };
-    const operation = idempotencyQueue.then(execute, execute);
-    idempotencyQueue = operation.then(() => undefined, () => undefined);
-    return operation;
-  }
-
+export function createApiRouter(agent, chainService, taskBroker) {
+  const guard = new MutationGuard();
   return async function routeApi(request, response, url) {
     const method = request.method || "GET";
     const pathname = url.pathname;
@@ -129,234 +110,103 @@ export function createApiRouter(aiService, {
         sendJson(response, 200, {
           data: {
             status: "ok",
-            service: "gold-ai-local-backend",
-            version: "0.6.0",
+            service: "jewelchain-studio",
+            version: "0.8.0",
             timestamp: new Date().toISOString(),
-            capabilities: await aiService.getCapabilities(),
           },
         });
         return true;
       }
-      if (method === "GET" && pathname === "/api/ai/capabilities") {
-        sendJson(response, 200, { data: await aiService.getCapabilities() });
-        return true;
-      }
-      if (method === "GET" && pathname === "/api/ai/models") {
-        sendJson(response, 200, { data: { items: await aiService.listModels() } });
-        return true;
-      }
-      if (method === "GET" && pathname === "/api/ai/providers/status") {
-        sendJson(response, 200, { data: await aiService.getProviderStatus() });
-        return true;
-      }
-      if (method === "GET" && pathname === "/api/ai/prompt-templates") {
-        sendJson(response, 200, { data: { items: await aiService.listPromptTemplates() } });
-        return true;
-      }
-      if (method === "GET" && pathname === "/api/ai/prompt-templates/current") {
-        sendJson(response, 200, { data: await aiService.getPublishedPrompt() });
-        return true;
-      }
-      if (method === "GET" && pathname === "/api/ai/requirements/status") {
-        sendJson(response, 200, { data: aiService.getRequirementParserStatus() });
-        return true;
-      }
-      if (method === "GET" && pathname === "/api/ai/requirements/schema") {
-        sendJson(response, 200, { data: aiService.getRequirementSchema() });
-        return true;
-      }
-      if (method === "GET" && pathname === "/api/ai/requirements/evaluation-cases") {
-        sendJson(response, 200, { data: { items: aiService.getRequirementEvaluationCases() } });
-        return true;
-      }
-      if (method === "GET" && pathname === "/api/web3/config" && web3Service) {
-        sendJson(response, 200, { data: await web3Service.getConfig() });
-        return true;
-      }
-      if (
-        method === "GET"
-        && pathname === "/api/web3/monad-testnet/evidence"
-        && monadTestnetReadService
-      ) {
-        if ([...url.searchParams.keys()].length) {
-          throw apiError("Monad Testnet 证据接口不接受查询参数", {
-            code: "MONAD_TESTNET_EVIDENCE_PARAMS_REJECTED",
-            httpStatus: 400,
-          });
-        }
+      if (method === "GET" && pathname === "/api/hackathon/config") {
+        const config = await agent.config();
+        const workerStatus = taskBroker ? await taskBroker.status() : null;
         sendJson(response, 200, {
-          data: await monadTestnetReadService.getEvidence(),
-        });
-        return true;
-      }
-
-      const taskMatch = pathname.match(/^\/api\/ai\/tasks\/([^/]+)$/);
-      if (method === "GET" && taskMatch) {
-        sendJson(response, 200, { data: await aiService.getTask(decodeURIComponent(taskMatch[1])) });
-        return true;
-      }
-      const requirementDetailMatch = pathname.match(/^\/api\/projects\/([^/]+)\/requirements\/([^/]+)$/);
-      if (method === "GET" && requirementDetailMatch) {
-        sendJson(response, 200, {
-          data: await aiService.getProjectRequirement(
-            decodeURIComponent(requirementDetailMatch[1]),
-            decodeURIComponent(requirementDetailMatch[2]),
-          ),
-        });
-        return true;
-      }
-      const requirementsMatch = pathname.match(/^\/api\/projects\/([^/]+)\/requirements$/);
-      if (method === "GET" && requirementsMatch) {
-        sendJson(response, 200, {
-          data: { items: await aiService.listProjectRequirements(decodeURIComponent(requirementsMatch[1])) },
-        });
-        return true;
-      }
-      const versionsMatch = pathname.match(/^\/api\/projects\/([^/]+)\/versions$/);
-      if (method === "GET" && versionsMatch) {
-        sendJson(response, 200, {
-          data: { items: await aiService.listProjectVersions(decodeURIComponent(versionsMatch[1])) },
-        });
-        return true;
-      }
-      const chainTimelineMatch = pathname.match(
-        /^\/api\/projects\/([^/]+)\/chain-timeline$/,
-      );
-      if (method === "GET" && chainTimelineMatch && web3Service) {
-        sendJson(response, 200, {
-          data: await web3Service.getProjectTimeline(
-            decodeURIComponent(chainTimelineMatch[1]),
-          ),
-        });
-        return true;
-      }
-
-      if (method !== "POST") {
-        sendJson(response, 404, {
-          error: {
-            code: "API_ROUTE_NOT_FOUND",
-            message: "接口不存在",
-            retryable: false,
-            details: { method, pathname },
+          data: {
+            ...config,
+            workerStatus,
+            demoAccessCodeRequired: Boolean(guard.accessCode),
+            generationLimitPerHour: guard.hourlyLimit,
           },
         });
         return true;
       }
-
-      const body = await readJson(request);
-      let action = null;
-      let statusCode = 200;
-
-      if (pathname === "/api/ai/requirements/parse") {
-        action = () => aiService.parseRequirements(body);
-      } else if (pathname === "/api/ai/requirements/evaluate") {
-        action = () => aiService.evaluateRequirementParser(body);
-      } else if (pathname === "/api/ai/generations") {
-        statusCode = 202;
-        action = () => aiService.createGeneration(body);
-      } else if (pathname === "/api/ai/prompt-templates") {
-        statusCode = 201;
-        action = () => aiService.createPromptVersion(body);
-      } else if (pathname === "/api/ai/prompt-templates/compare") {
-        action = () => aiService.comparePromptVersions(body.leftVersionId, body.rightVersionId);
-      } else if (pathname === "/api/knowledge/search") {
-        action = () => ({ items: aiService.searchApprovedKnowledge(body) });
-      } else if (pathname === "/api/web3/registrations/prepare" && web3Service) {
-        statusCode = 201;
-        action = () => web3Service.prepareRegistration(body);
+      if (method === "GET" && pathname === "/api/hackathon/chain/status") {
+        sendJson(response, 200, { data: await chainService.status() });
+        return true;
       }
-
-      const cancelMatch = pathname.match(/^\/api\/ai\/tasks\/([^/]+)\/cancel$/);
-      if (cancelMatch) action = () => aiService.cancelTask(decodeURIComponent(cancelMatch[1]));
-      const retryMatch = pathname.match(/^\/api\/ai\/tasks\/([^/]+)\/retry$/);
-      if (retryMatch) {
-        statusCode = 202;
-        action = () => aiService.retryTask(decodeURIComponent(retryMatch[1]), body);
+      if (method === "POST" && pathname === "/api/hackathon/designs") {
+        guard.requireCode(request);
+        guard.requireGenerationQuota(request);
+        sendJson(response, 202, { data: await agent.createDesign(await readJson(request)) });
+        return true;
       }
-      const refineMatch = pathname.match(/^\/api\/ai\/generations\/([^/]+)\/refine$/);
-      if (refineMatch) {
-        statusCode = 202;
-        action = () => aiService.refineGeneration(decodeURIComponent(refineMatch[1]), body);
+      const revisionMatch = pathname.match(/^\/api\/hackathon\/designs\/([^/]+)\/revisions$/);
+      if (method === "POST" && revisionMatch) {
+        guard.requireCode(request);
+        guard.requireGenerationQuota(request);
+        sendJson(response, 202, { data: await agent.reviseDesign(decodeURIComponent(revisionMatch[1]), await readJson(request)) });
+        return true;
       }
-      const feedbackMatch = pathname.match(/^\/api\/ai\/results\/([^/]+)\/feedback$/);
-      if (feedbackMatch) {
-        statusCode = 201;
-        action = () => aiService.submitFeedback(decodeURIComponent(feedbackMatch[1]), body);
+      const designMatch = pathname.match(/^\/api\/hackathon\/designs\/([^/]+)$/);
+      if (method === "GET" && designMatch) {
+        sendJson(response, 200, { data: await agent.getProject(decodeURIComponent(designMatch[1])) });
+        return true;
       }
-      const requirementConfirmMatch = pathname.match(/^\/api\/projects\/([^/]+)\/requirements\/([^/]+)\/confirm$/);
-      if (requirementConfirmMatch) {
-        action = () => aiService.confirmProjectRequirement(
-          decodeURIComponent(requirementConfirmMatch[1]),
-          decodeURIComponent(requirementConfirmMatch[2]),
-          body,
-        );
-      } else if (requirementsMatch) {
-        statusCode = 201;
-        action = () => aiService.createRequirementRevision(
-          decodeURIComponent(requirementsMatch[1]),
-          body,
-        );
+      const timelineMatch = pathname.match(/^\/api\/hackathon\/designs\/([^/]+)\/timeline$/);
+      if (method === "GET" && timelineMatch) {
+        sendJson(response, 200, { data: await agent.timeline(decodeURIComponent(timelineMatch[1])) });
+        return true;
       }
-      const publishMatch = pathname.match(/^\/api\/ai\/prompt-templates\/([^/]+)\/publish$/);
-      if (publishMatch) {
-        action = () => aiService.publishPromptVersion(decodeURIComponent(publishMatch[1]), body);
+      const certificateMatch = pathname.match(/^\/api\/hackathon\/designs\/([^/]+)\/certificate$/);
+      if (method === "GET" && certificateMatch) {
+        sendJson(response, 200, { data: await agent.certificate(decodeURIComponent(certificateMatch[1])) });
+        return true;
       }
-      const versionConfirmMatch = pathname.match(
-        /^\/api\/projects\/([^/]+)\/versions\/([^/]+)\/confirm$/,
-      );
-      if (versionConfirmMatch && web3Service) {
-        statusCode = 201;
-        action = () => web3Service.confirmProjectVersion(
-          decodeURIComponent(versionConfirmMatch[1]),
-          decodeURIComponent(versionConfirmMatch[2]),
-          body,
-        );
+      const jobMatch = pathname.match(/^\/api\/hackathon\/jobs\/([^/]+)$/);
+      if (method === "GET" && jobMatch) {
+        sendJson(response, 200, { data: await agent.getJob(decodeURIComponent(jobMatch[1])) });
+        return true;
       }
-      const localSubmitMatch = pathname.match(
-        /^\/api\/web3\/registrations\/([^/]+)\/submit-local$/,
-      );
-      if (localSubmitMatch && web3Service) {
-        action = () => web3Service.submitLocal(
-          decodeURIComponent(localSubmitMatch[1]),
-          body,
-        );
-      }
-      const registrationVerifyMatch = pathname.match(
-        /^\/api\/web3\/registrations\/([^/]+)\/verify$/,
-      );
-      if (registrationVerifyMatch && web3Service) {
-        action = () => web3Service.verifyRegistration(
-          decodeURIComponent(registrationVerifyMatch[1]),
-          body,
-        );
-      }
-
-      if (!action) {
-        sendJson(response, 404, {
-          error: {
-            code: "API_ROUTE_NOT_FOUND",
-            message: "接口不存在",
-            retryable: false,
-            details: { method, pathname },
-          },
+      const prepareRegistration = pathname.match(/^\/api\/hackathon\/versions\/([^/]+)\/prepare-registration$/);
+      if (method === "POST" && prepareRegistration) {
+        guard.requireCode(request);
+        const body = await readJson(request);
+        sendJson(response, 200, {
+          data: await agent.prepareRegistration(decodeURIComponent(prepareRegistration[1]), {
+            ...body,
+            baseUrl: requestBaseUrl(request),
+          }),
         });
         return true;
       }
+      const prepareFinalize = pathname.match(/^\/api\/hackathon\/versions\/([^/]+)\/prepare-finalize$/);
+      if (method === "POST" && prepareFinalize) {
+        guard.requireCode(request);
+        sendJson(response, 200, { data: await agent.prepareFinalize(decodeURIComponent(prepareFinalize[1]), await readJson(request)) });
+        return true;
+      }
+      const submissionMatch = pathname.match(/^\/api\/hackathon\/versions\/([^/]+)\/chain-submission$/);
+      if (method === "POST" && submissionMatch) {
+        guard.requireCode(request);
+        sendJson(response, 202, { data: await agent.recordSubmission(decodeURIComponent(submissionMatch[1]), await readJson(request)) });
+        return true;
+      }
+      const chainStatusMatch = pathname.match(/^\/api\/hackathon\/versions\/([^/]+)\/chain-status$/);
+      if (method === "GET" && chainStatusMatch) {
+        const kind = url.searchParams.get("kind") === "finalize" ? "finalize" : "register";
+        sendJson(response, 200, { data: await agent.getChainStatus(decodeURIComponent(chainStatusMatch[1]), kind) });
+        return true;
+      }
+      if (method === "POST" && pathname === "/api/hackathon/agent/query") {
+        const body = await readJson(request);
+        sendJson(response, 200, { data: await agent.answerQuestion(body.projectId, body.question) });
+        return true;
+      }
 
-      const scope = `${method} ${pathname}`;
-      const outcome = await runIdempotent(request, scope, body, async () => ({
-        statusCode,
-        data: await action(),
-      }));
-      sendJson(
-        response,
-        outcome.statusCode,
-        { data: outcome.data },
-        outcome.replayed ? { "Idempotency-Replayed": "true" } : {},
-      );
+      sendJson(response, 404, { error: { code: "API_ROUTE_NOT_FOUND", message: "接口不存在", retryable: false } });
       return true;
     } catch (error) {
-      sendJson(response, error.httpStatus || 500, errorPayload(error));
+      sendJson(response, error.httpStatus || 500, errorBody(error));
       return true;
     }
   };

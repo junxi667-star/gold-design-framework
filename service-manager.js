@@ -5,164 +5,80 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-const packageRoot = path.dirname(fileURLToPath(import.meta.url));
-const statePath = path.join(packageRoot, ".gold-demo-server.json");
+const root = path.dirname(fileURLToPath(import.meta.url));
+const stateFile = path.join(root, ".gold-demo-server.json");
 const host = "127.0.0.1";
-const requestedPort = Number(process.env.PORT || 4173);
+const port = Number(process.env.PORT || process.argv[3] || 4173);
 
-function demoUrl(port) {
-  return `http://${host}:${port}/?demo=1`;
-}
-
-function sleep(milliseconds) {
-  return new Promise((resolve) => setTimeout(resolve, milliseconds));
-}
-
+function sleep(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
 function readState() {
-  if (!existsSync(statePath)) {
-    return null;
-  }
-  try {
-    const value = JSON.parse(readFileSync(statePath, "utf8"));
-    if (!Number.isInteger(value.pid) || typeof value.token !== "string" || !value.token) {
-      return null;
-    }
-    return value;
-  } catch {
-    return null;
-  }
+  if (!existsSync(stateFile)) return null;
+  try { return JSON.parse(readFileSync(stateFile, "utf8")); } catch { return null; }
 }
-
-function removeState() {
-  if (existsSync(statePath)) {
-    unlinkSync(statePath);
-  }
-}
-
-function probeServer(port, timeout = 900) {
+function removeState() { if (existsSync(stateFile)) unlinkSync(stateFile); }
+function probe(targetPort, timeout = 900) {
   return new Promise((resolve) => {
-    const request = http.get({ host, port, path: "/", timeout }, (response) => {
-      response.resume();
-      resolve({
-        reachable: true,
-        statusCode: response.statusCode,
-        token: String(response.headers["x-gold-demo-instance"] || ""),
-      });
+    const request = http.get({ host, port: targetPort, path: "/api/health", timeout }, (response) => {
+      const chunks = [];
+      response.on("data", (chunk) => chunks.push(chunk));
+      response.on("end", () => resolve({ ok: response.statusCode === 200, body: Buffer.concat(chunks).toString("utf8") }));
     });
     request.on("timeout", () => request.destroy());
-    request.on("error", () => resolve({ reachable: false, statusCode: null, token: "" }));
+    request.on("error", () => resolve({ ok: false, body: "" }));
   });
 }
 
-function openBrowser(port) {
-  if (process.env.GOLD_DEMO_NO_BROWSER === "1") {
-    return;
-  }
-  const command = process.env.ComSpec || "cmd.exe";
-  const opener = spawn(command, ["/d", "/s", "/c", "start", "", demoUrl(port)], {
-    detached: true,
-    stdio: "ignore",
-    windowsHide: true,
-  });
-  opener.on("error", () => {});
-  opener.unref();
-}
-
-async function startService() {
-  const saved = readState();
-  if (saved) {
-    const savedPort = Number.isInteger(saved.port) ? saved.port : requestedPort;
-    const savedServer = await probeServer(savedPort);
-    if (savedServer.reachable && savedServer.token === saved.token) {
-      openBrowser(savedPort);
-      console.log(`Demo is already running: ${demoUrl(savedPort)}`);
+async function start() {
+  const old = readState();
+  if (old?.pid && old?.port) {
+    const alive = await probe(old.port);
+    if (alive.ok) {
+      console.log(`Already running: http://${host}:${old.port}`);
       return;
     }
-  }
-  const current = await probeServer(requestedPort);
-  if (current.reachable) {
-    throw new Error(`Port ${requestedPort} is used by another application.`);
-  }
-  removeState();
-
-  const token = randomUUID();
-  const serverPath = path.join(packageRoot, "server.js");
-  const child = spawn(process.execPath, [serverPath], {
-    cwd: packageRoot,
-    detached: true,
-    env: { ...process.env, GOLD_DEMO_INSTANCE_TOKEN: token, PORT: String(requestedPort) },
-    stdio: "ignore",
-    windowsHide: true,
-  });
-  await new Promise((resolve, reject) => {
-    child.once("spawn", resolve);
-    child.once("error", reject);
-  });
-  writeFileSync(statePath, JSON.stringify({ pid: child.pid, token, port: requestedPort }, null, 2), "utf8");
-  child.unref();
-
-  for (let attempt = 0; attempt < 30; attempt += 1) {
-    await sleep(200);
-    const status = await probeServer(requestedPort);
-    if (status.reachable && status.token === token) {
-      openBrowser(requestedPort);
-      console.log(`Demo started in background: ${demoUrl(requestedPort)}`);
-      return;
-    }
-  }
-
-  try {
-    process.kill(child.pid);
-  } catch {}
-  removeState();
-  throw new Error("The background server did not become ready.");
-}
-
-async function stopService() {
-  const saved = readState();
-  if (!saved) {
-    console.log("No package-owned demo server is running.");
-    return;
-  }
-
-  const savedPort = Number.isInteger(saved.port) ? saved.port : requestedPort;
-  const current = await probeServer(savedPort);
-  if (!current.reachable) {
     removeState();
-    console.log("The demo server had already stopped.");
-    return;
   }
-  if (current.token !== saved.token) {
-    throw new Error("Refusing to stop a server that does not belong to this package.");
-  }
-
-  try {
-    process.kill(saved.pid);
-  } catch (error) {
-    if (error.code !== "ESRCH") {
-      throw error;
+  const occupied = await probe(port);
+  if (occupied.ok) throw new Error(`Port ${port} is already used by another server.`);
+  const token = randomUUID();
+  const child = spawn(process.execPath, [path.join(root, "server.js")], {
+    cwd: root,
+    detached: true,
+    windowsHide: true,
+    stdio: "ignore",
+    env: { ...process.env, PORT: String(port), JEWELCHAIN_INSTANCE_TOKEN: token },
+  });
+  await new Promise((resolve, reject) => { child.once("spawn", resolve); child.once("error", reject); });
+  writeFileSync(stateFile, JSON.stringify({ pid: child.pid, port, token }, null, 2), "utf8");
+  child.unref();
+  for (let i = 0; i < 40; i += 1) {
+    await sleep(200);
+    if ((await probe(port)).ok) {
+      console.log(`Started: http://${host}:${port}`);
+      return;
     }
   }
-  for (let attempt = 0; attempt < 20; attempt += 1) {
-    await sleep(150);
-    const status = await probeServer(savedPort);
-    if (!status.reachable || status.token !== saved.token) {
-      break;
-    }
-  }
+  try { process.kill(child.pid); } catch {}
   removeState();
-  console.log("Demo server stopped.");
+  throw new Error("Server did not become ready.");
 }
 
-const command = process.argv[2];
-try {
-  if (command === "start") {
-    await startService();
-  } else if (command === "stop") {
-    await stopService();
-  } else {
-    throw new Error("Usage: service-manager.js start|stop");
+async function stop() {
+  const saved = readState();
+  if (!saved) { console.log("No package-owned server is running."); return; }
+  try { process.kill(saved.pid); } catch (error) { if (error.code !== "ESRCH") throw error; }
+  for (let i = 0; i < 20; i += 1) {
+    await sleep(150);
+    if (!(await probe(saved.port)).ok) break;
   }
+  removeState();
+  console.log("Stopped.");
+}
+
+try {
+  if (process.argv[2] === "start") await start();
+  else if (process.argv[2] === "stop") await stop();
+  else throw new Error("Usage: service-manager.js start|stop [port]");
 } catch (error) {
   console.error(`ERROR: ${error.message}`);
   process.exitCode = 1;

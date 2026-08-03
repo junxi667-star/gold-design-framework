@@ -1,670 +1,400 @@
-import {
-  buildProjectExport,
-  confirmVersion,
-  createKnowledgeItem,
-  createProject,
-  refinementOptions,
-  reviewKnowledgeItem,
-  selectDirection,
-} from "./domain.js";
-import { LocalDatabase } from "./db.js";
-import { isDemoMode, seedDemoDataIfRequested } from "./demo-seed.js";
-import { frameworkCapabilities, MockDesignProvider } from "./providers.js";
-import { initializeAiWorkbench } from "./ai-workbench.js";
+const EXAMPLE = "设计一款适合年轻女性日常佩戴的新中式黄金戒指，使用简化祥云元素，不要太复杂。";
+const TERMINAL_JOBS = new Set(["succeeded", "failed"]);
 
-const database = new LocalDatabase();
-const designProvider = new MockDesignProvider();
-const photoUrls = new Set();
+const $ = (selector) => document.querySelector(selector);
+const elements = {
+  serviceBadge: $("#serviceBadge"), walletButton: $("#walletButton"), walletStatus: $("#walletStatus"),
+  imageStatus: $("#imageStatus"), storageStatus: $("#storageStatus"), chainStatus: $("#chainStatus"),
+  customerText: $("#customerText"), accessCode: $("#accessCode"), exampleButton: $("#exampleButton"), generateButton: $("#generateButton"),
+  jobPanel: $("#jobPanel"), progressBar: $("#progressBar"), progressText: $("#progressText"), progressPercent: $("#progressPercent"), errorBox: $("#errorBox"),
+  workspace: $("#workspace"), projectSummary: $("#projectSummary"), timeline: $("#timeline"), refreshTimelineButton: $("#refreshTimelineButton"),
+  changeRequest: $("#changeRequest"), reviseButton: $("#reviseButton"), agentQuestion: $("#agentQuestion"), askAgentButton: $("#askAgentButton"), agentAnswer: $("#agentAnswer"),
+  toast: $("#toast"),
+};
 
-let projects = [];
-let knowledgeItems = [];
-let activeProject = null;
-let toastTimer = null;
-let pendingPreviewUrl = null;
-let aiWorkbench = null;
+const state = {
+  config: null,
+  projectId: localStorage.getItem("jewelchain-project-id") || "",
+  walletAddress: "",
+  busy: false,
+  timeline: null,
+  toastTimer: null,
+};
 
-const briefForm = document.querySelector("#brief-form");
-const directionsSection = document.querySelector("#directions-section");
-const directionsGrid = document.querySelector("#directions-grid");
-const refinementSection = document.querySelector("#refinement-section");
-const refinementForm = document.querySelector("#refinement-form");
-const versionsSection = document.querySelector("#versions-section");
-const versionsList = document.querySelector("#versions-list");
-const knowledgeForm = document.querySelector("#knowledge-form");
-const knowledgeList = document.querySelector("#knowledge-list");
-const approvedKnowledgeOptions = document.querySelector("#approved-knowledge-options");
-const photoPreview = document.querySelector("#photo-preview");
-const toast = document.querySelector("#toast");
+elements.accessCode.value = sessionStorage.getItem("jewelchain-access-code") || "";
+elements.accessCode.addEventListener("input", () => sessionStorage.setItem("jewelchain-access-code", elements.accessCode.value));
 
-function escapeHtml(value) {
-  return String(value ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
+function short(value, left = 8, right = 6) {
+  const raw = String(value || "");
+  return raw.length > left + right + 3 ? `${raw.slice(0, left)}…${raw.slice(-right)}` : raw;
 }
 
-function formatDate(value) {
-  return new Intl.DateTimeFormat("zh-CN", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(value));
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>'"]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[char]);
 }
 
 function showToast(message, isError = false) {
-  window.clearTimeout(toastTimer);
-  toast.textContent = message;
-  toast.classList.toggle("is-error", isError);
-  toast.classList.add("is-visible");
-  toastTimer = window.setTimeout(() => toast.classList.remove("is-visible"), 3200);
+  clearTimeout(state.toastTimer);
+  elements.toast.textContent = message;
+  elements.toast.classList.toggle("error", isError);
+  elements.toast.hidden = false;
+  state.toastTimer = setTimeout(() => { elements.toast.hidden = true; }, isError ? 7000 : 3200);
 }
 
-function setCurrentStep(step) {
-  const order = ["brief", "direction", "refine", "confirm"];
-  const currentIndex = order.indexOf(step);
-  document.querySelectorAll(".stepper li").forEach((item) => {
-    item.classList.toggle("is-current", order.indexOf(item.dataset.step) <= currentIndex);
-  });
+function showError(error) {
+  elements.errorBox.hidden = false;
+  elements.errorBox.textContent = error?.message || String(error);
+  showToast(error?.message || "操作失败", true);
 }
 
-function setBriefFormLocked(locked) {
-  briefForm.querySelectorAll("input, select, textarea, button").forEach((control) => {
-    control.disabled = locked;
-  });
+function clearError() {
+  elements.errorBox.hidden = true;
+  elements.errorBox.textContent = "";
 }
 
-function renderApprovedKnowledge() {
-  const approved = knowledgeItems.filter((item) => item.reviewStatus === "approved");
-  if (approved.length === 0) {
-    approvedKnowledgeOptions.innerHTML = '<span class="empty-inline">目前没有已批准资料，可先到“专家资料”录入并审核。</span>';
-    return;
+async function api(path, { method = "GET", body } = {}) {
+  const headers = { Accept: "application/json" };
+  if (body !== undefined) headers["Content-Type"] = "application/json";
+  const code = elements.accessCode.value.trim();
+  if (code) headers["X-Demo-Access-Code"] = code;
+  let response;
+  try {
+    response = await fetch(path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+  } catch (error) {
+    throw new Error("无法连接 JewelChain 后端，请确认项目已经启动。", { cause: error });
   }
-
-  approvedKnowledgeOptions.innerHTML = approved
-    .map(
-      (item) => `
-        <label class="check-card">
-          <input type="checkbox" name="knowledgeRefs" value="${escapeHtml(item.id)}" />
-          <span>${escapeHtml(item.title)} · ${escapeHtml(item.sourceNote)}</span>
-        </label>
-      `,
-    )
-    .join("");
+  const raw = await response.text();
+  let payload;
+  try { payload = raw ? JSON.parse(raw) : {}; }
+  catch { payload = { error: { message: raw || `HTTP ${response.status}` } }; }
+  if (!response.ok) {
+    const error = new Error(payload?.error?.message || `请求失败（HTTP ${response.status}）`);
+    error.code = payload?.error?.code;
+    error.details = payload?.error?.details;
+    throw error;
+  }
+  return payload?.data ?? payload;
 }
 
-function renderDirections() {
-  if (!activeProject?.directions?.length) {
-    directionsSection.classList.add("is-hidden");
-    directionsGrid.innerHTML = "";
-    return;
-  }
-
-  directionsSection.classList.remove("is-hidden");
-  directionsGrid.innerHTML = activeProject.directions
-    .map((direction) => {
-      const isSelected = direction.id === activeProject.selectedDirectionId;
-      const knowledgeNote = direction.knowledgeRefs.length
-        ? `关联 ${direction.knowledgeRefs.length} 条已审核资料（首版仅记录引用）`
-        : "未关联专家资料";
-      return `
-        <article class="direction-card ${isSelected ? "is-selected" : ""}">
-          <div class="placeholder-art ${escapeHtml(direction.placeholderKey)}">
-            <span>DEMO 占位 · 非 AI 图片</span>
-          </div>
-          <div class="direction-content">
-            <h4>${escapeHtml(direction.title)}</h4>
-            <p>${escapeHtml(direction.concept)}</p>
-            <div class="tag-row">
-              ${direction.keywords.map((keyword) => `<span class="tag">${escapeHtml(keyword)}</span>`).join("")}
-            </div>
-            <p class="field-help">${escapeHtml(knowledgeNote)}</p>
-            <button class="button ${isSelected ? "button-secondary" : "button-primary"}" type="button" data-direction-id="${escapeHtml(direction.id)}" ${isSelected ? "disabled" : ""}>
-              ${isSelected ? "当前方向" : activeProject.selectedDirectionId ? "切换到此方向" : "选择这个方向"}
-            </button>
-          </div>
-        </article>
-      `;
-    })
-    .join("");
+function setBusy(button, busy, label) {
+  if (!button) return;
+  if (!button.dataset.originalText) button.dataset.originalText = button.textContent;
+  button.disabled = busy;
+  button.textContent = busy ? label : button.dataset.originalText;
 }
 
-function renderRefinement() {
-  const visible = Boolean(activeProject?.selectedDirectionId);
-  refinementSection.classList.toggle("is-hidden", !visible);
-  if (!visible) {
-    return;
-  }
-
-  document.querySelector("#refinement-options").innerHTML = refinementOptions
-    .map(
-      (option) => `
-        <label class="chip" title="${escapeHtml(option.group)}">
-          <input type="checkbox" name="optionIds" value="${escapeHtml(option.id)}" />
-          <span>${escapeHtml(option.label)}</span>
-        </label>
-      `,
-    )
-    .join("");
-}
-
-function renderVersions() {
-  const versions = activeProject?.versions ?? [];
-  versionsSection.classList.toggle("is-hidden", versions.length === 0);
-  if (versions.length === 0) {
-    versionsList.innerHTML = "";
-    return;
-  }
-
-  versionsList.innerHTML = [...versions]
-    .reverse()
-    .map((version) => {
-      const confirmed = activeProject.confirmedVersionId === version.id;
-      const current = activeProject.currentVersionId === version.id;
-      return `
-        <article class="version-card ${confirmed ? "is-confirmed" : ""}">
-          <div class="card-topline">
-            <div>
-              <h4>V${version.number} ${current ? "· 当前版本" : ""}</h4>
-              <span class="status-pill">${version.changeType === "direction_selected" ? "方向选择" : "细化记录"}</span>
-            </div>
-            ${confirmed ? '<span class="status-pill approved">已确认</span>' : `<button class="button button-small button-secondary" type="button" data-confirm-version="${escapeHtml(version.id)}">确认此版本</button>`}
-          </div>
-          <p>${escapeHtml(version.changeSummary)}</p>
-          ${version.unresolvedRequests.length ? `<p><strong>尚未解析的客户原话：</strong>${escapeHtml(version.unresolvedRequests.join("；"))}</p>` : ""}
-          <p class="field-help">${formatDate(version.createdAt)} · 仅记录交互与占位版本</p>
-        </article>
-      `;
-    })
-    .join("");
-}
-
-function fillBriefFormFromProject() {
-  if (!activeProject) {
-    setBriefFormLocked(false);
-    return;
-  }
-  for (const [name, value] of Object.entries(activeProject.brief)) {
-    const control = briefForm.elements.namedItem(name);
-    if (control) {
-      control.value = value;
-    }
-  }
-  setBriefFormLocked(true);
-}
-
-function renderDesign() {
-  renderApprovedKnowledge();
-  fillBriefFormFromProject();
-  renderDirections();
-  renderRefinement();
-  renderVersions();
-
-  if (activeProject?.confirmedVersionId) {
-    setCurrentStep("confirm");
-  } else if (activeProject?.selectedDirectionId) {
-    setCurrentStep("refine");
-  } else if (activeProject?.directions.length) {
-    setCurrentStep("direction");
-  } else {
-    setCurrentStep("brief");
-  }
+function setProgress(progress, message) {
+  const value = Math.max(0, Math.min(100, Number(progress) || 0));
+  elements.jobPanel.hidden = false;
+  elements.progressBar.style.width = `${value}%`;
+  elements.progressPercent.textContent = `${Math.round(value)}%`;
+  elements.progressText.textContent = message || "处理中";
 }
 
 function statusLabel(status) {
-  return {
-    pending: "待审核",
-    approved: "已批准",
-    rejected: "已拒绝",
-    needs_revision: "需修改",
-  }[status] ?? status;
+  return ({
+    generating: "正在生成", generation_failed: "生成失败", awaiting_confirmation: "等待确认",
+    awaiting_wallet_signature: "等待钱包签名", tx_submitted: "交易确认中", chain_confirmed: "已登记 Monad",
+    registration_failed: "登记失败", finalized: "最终确认版",
+  })[status] || status || "未知";
 }
 
-function kindLabel(kind) {
-  return kind === "photo" ? "参考照片" : "专业文本";
+function stateClass(status) {
+  if (["chain_confirmed", "finalized"].includes(status)) return status;
+  if (["generation_failed", "registration_failed"].includes(status)) return "failed";
+  return "";
 }
 
-async function getPhotoUrl(item) {
-  if (item.kind !== "photo") {
-    return null;
-  }
-  const asset = await database.get("assets", item.photo.assetId);
-  if (!asset?.blob) {
-    return null;
-  }
-  const url = URL.createObjectURL(asset.blob);
-  photoUrls.add(url);
-  return url;
-}
-
-async function renderKnowledge() {
-  for (const url of photoUrls) {
-    URL.revokeObjectURL(url);
-  }
-  photoUrls.clear();
-
-  if (knowledgeItems.length === 0) {
-    knowledgeList.innerHTML = '<p class="empty-inline">还没有专家资料。先录入原始文本或照片，再进行人工审核。</p>';
+async function loadConfig() {
+  try {
+    const config = await api("/api/hackathon/config");
+    state.config = config;
+    const generation = config.generation || {};
+    const workerMode = generation.mode === "worker";
+    const onlineWorkers = Number(config.workerStatus?.onlineWorkers || generation.worker?.onlineWorkers || 0);
+    const directConfigured = Boolean(generation.directProvider?.configured || config.imageProvider?.configured);
+    const imageOk = workerMode ? onlineWorkers > 0 : generation.mode === "hybrid" ? (onlineWorkers > 0 || directConfigured) : directConfigured;
+    if (workerMode) {
+      elements.imageStatus.textContent = onlineWorkers > 0 ? `Image Worker 在线（${onlineWorkers}）` : "等待 Image Worker 上线";
+    } else if (generation.mode === "hybrid") {
+      elements.imageStatus.textContent = onlineWorkers > 0 ? `Worker 优先（${onlineWorkers} 在线）` : directConfigured ? "Master API 直调兜底" : "生图端未配置";
+    } else {
+      elements.imageStatus.textContent = directConfigured ? `${generation.directProvider?.model || config.imageProvider?.model || "图片模型"} 已配置` : "未配置 API Key";
+    }
+    elements.storageStatus.textContent = config.storage?.effectiveMode === "supabase" ? "Supabase" : "本地存储";
+    elements.serviceBadge.textContent = imageOk ? "Master 与生图端已就绪" : workerMode ? "Master 已启动，Worker 未上线" : "需要配置 .env";
+    elements.serviceBadge.className = `badge ${imageOk ? "ok" : "error"}`;
+    if (config.demoAccessCodeRequired) elements.accessCode.placeholder = "必须填写项目访问码";
+  } catch {
+    elements.serviceBadge.textContent = "后端连接失败";
+    elements.serviceBadge.className = "badge error";
+    elements.imageStatus.textContent = "检查失败";
+    elements.storageStatus.textContent = "检查失败";
+    elements.chainStatus.textContent = "检查失败";
     return;
   }
-
-  const cards = await Promise.all(
-    [...knowledgeItems]
-      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-      .map(async (item) => {
-        const photoUrl = await getPhotoUrl(item);
-        const contentPreview = item.kind === "text"
-          ? escapeHtml(item.textContent.slice(0, 160))
-          : escapeHtml(item.photo.caption);
-        return `
-          <article class="knowledge-card" data-knowledge-id="${escapeHtml(item.id)}">
-            <div class="knowledge-card-header">
-              <div>
-                <h4>${escapeHtml(item.title)}</h4>
-                <div class="knowledge-meta">
-                  <span>${kindLabel(item.kind)}</span>
-                  <span>${escapeHtml(item.category)}</span>
-                  <span>来源：${escapeHtml(item.sourceNote)}</span>
-                </div>
-              </div>
-              <span class="status-pill ${escapeHtml(item.reviewStatus)}">${statusLabel(item.reviewStatus)}</span>
-            </div>
-            ${photoUrl ? `<img class="knowledge-thumb" src="${photoUrl}" alt="${escapeHtml(item.photo.caption)}" />` : ""}
-            <p>${contentPreview}${item.kind === "text" && item.textContent.length > 160 ? "…" : ""}</p>
-            <p class="field-help">${formatDate(item.createdAt)} · 仅本地保存，未解析、未训练</p>
-            ${item.reviewer ? `<p><strong>审核：</strong>${escapeHtml(item.reviewer)} · ${escapeHtml(item.reviewNote || "无补充说明")}</p>` : ""}
-            <div class="knowledge-actions">
-              <input class="reviewer-input" aria-label="审核人" placeholder="审核人" maxlength="60" value="${escapeHtml(item.reviewer)}" />
-              <input class="review-note-input" aria-label="审核说明" placeholder="审核说明（可选）" maxlength="200" value="${escapeHtml(item.reviewNote)}" />
-              <button class="button button-small button-secondary" type="button" data-review="approved">批准</button>
-              <button class="button button-small button-secondary" type="button" data-review="needs_revision">需修改</button>
-              <button class="button button-small button-secondary" type="button" data-review="rejected">拒绝</button>
-              <button class="button button-small button-danger-quiet" type="button" data-delete-knowledge>删除</button>
-            </div>
-          </article>
-        `;
-      }),
-  );
-
-  knowledgeList.innerHTML = cards.join("");
+  api("/api/hackathon/chain/status").then((chain) => {
+    elements.chainStatus.textContent = chain.reachable && chain.contractCodePresent ? "Monad 合约可访问" : "链或合约待检查";
+  }).catch(() => {
+    elements.chainStatus.textContent = "RPC 暂时不可访问";
+  });
 }
 
-function renderCapabilities() {
-  const labels = {
-    externalNetwork: ["外部联网", "首版关闭"],
-    realImageGeneration: ["真实图片生成", "需同源后端与可达模型"],
-    photoRecognition: ["照片识别", "首版关闭"],
-    ocr: ["OCR 文本识别", "首版关闭"],
-    modelTraining: ["模型训练", "首版关闭"],
-    aiInterfaceContracts: ["AI 接口工作台", "当前可用"],
-    localTaskSimulation: ["本地任务模拟", "当前可用"],
-    sameOriginApiClient: ["同源 API 客户端", "显式启用"],
-    localKnowledgeReview: ["本地专家审核", "当前可用"],
-    localVersionHistory: ["设计版本历史", "当前可用"],
-  };
-  document.querySelector("#capability-grid").innerHTML = Object.entries(frameworkCapabilities)
-    .map(([key, enabled]) => `
-      <article class="capability-card ${enabled ? "is-on" : ""}">
-        <strong>${escapeHtml(labels[key][0])}</strong>
-        <span>${enabled ? "●" : "○"} ${escapeHtml(labels[key][1])}</span>
-      </article>
-    `)
-    .join("");
-}
-
-function renderStatusSummary() {
-  const approvedCount = knowledgeItems.filter((item) => item.reviewStatus === "approved").length;
-  document.querySelector("#status-summary").innerHTML = `
-    <strong>本地数据概况</strong>
-    <p>${projects.length} 个设计项目 · ${knowledgeItems.length} 条专家资料 · ${approvedCount} 条已批准资料</p>
-    <p class="field-help">数据只存在当前浏览器；清除浏览器网站数据也会删除这些记录。</p>
-  `;
-}
-
-async function renderAll() {
-  renderDesign();
-  await renderKnowledge();
-  renderCapabilities();
-  renderStatusSummary();
-  await aiWorkbench?.refreshContext();
-}
-
-async function saveActiveProject() {
-  await database.put("projects", activeProject);
-  const index = projects.findIndex((project) => project.id === activeProject.id);
-  if (index >= 0) {
-    projects[index] = activeProject;
-  } else {
-    projects.push(activeProject);
+async function connectWallet() {
+  if (!window.ethereum) {
+    throw new Error("当前浏览器没有检测到 MetaMask。电脑请安装 MetaMask；手机请在 MetaMask 内置浏览器中打开本页面。");
   }
+  const accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
+  if (!accounts?.[0]) throw new Error("没有获得钱包地址");
+  state.walletAddress = accounts[0].toLowerCase();
+  elements.walletButton.textContent = short(state.walletAddress, 6, 4);
+  elements.walletStatus.textContent = short(state.walletAddress, 6, 4);
+  return state.walletAddress;
 }
 
-async function selectAiProjectDirection(selection) {
-  const project = projects.find((item) => item.id === selection.projectId);
-  if (!project?.directions?.length) {
-    return { persisted: false, reason: "legacy_project_has_no_directions" };
-  }
-  const legacyDirection = project.directions.find((direction) => direction.id === selection.directionId)
-    || project.directions.find((direction) => Number(direction.slot) === Number(selection.directionIndex))
-    || project.directions[Number(selection.directionIndex) - 1];
-  if (!legacyDirection) {
-    return { persisted: false, reason: "legacy_direction_not_found" };
-  }
-  const updated = project.selectedDirectionId === legacyDirection.id
-    ? project
-    : selectDirection(project, legacyDirection.id);
-  await database.put("projects", updated);
-  projects = projects.map((item) => item.id === updated.id ? updated : item);
-  if (activeProject?.id === updated.id) {
-    activeProject = updated;
-    renderDesign();
-  }
-  const version = [...(updated.versions ?? [])].at(-1);
-  return {
-    persisted: true,
-    selectedDirectionId: legacyDirection.id,
-    versionId: version?.id || null,
-  };
-}
-
-briefForm.addEventListener("submit", async (event) => {
-  event.preventDefault();
+async function ensureMonadNetwork() {
+  if (!state.config) await loadConfig();
+  if (!window.ethereum) throw new Error("未检测到 MetaMask");
+  const chain = state.config.chain;
+  const current = await window.ethereum.request({ method: "eth_chainId" });
+  if (String(current).toLowerCase() === String(chain.chainIdHex).toLowerCase()) return;
   try {
-    const formData = new FormData(briefForm);
-    const knowledgeRefs = formData.getAll("knowledgeRefs");
-    let project = createProject(Object.fromEntries(formData), knowledgeRefs);
-    project = await designProvider.prepareDirections(project, knowledgeItems);
-    activeProject = project;
-    await saveActiveProject();
-    renderDesign();
-    renderStatusSummary();
-    await aiWorkbench?.refreshContext();
-    directionsSection.scrollIntoView({ behavior: "smooth", block: "start" });
-    showToast("已建立 3 个本地演示方向");
+    await window.ethereum.request({ method: "wallet_switchEthereumChain", params: [{ chainId: chain.chainIdHex }] });
   } catch (error) {
-    showToast(error.message, true);
-  }
-});
-
-directionsGrid.addEventListener("click", async (event) => {
-  const button = event.target.closest("[data-direction-id]");
-  if (!button || !activeProject) {
-    return;
-  }
-  try {
-    activeProject = selectDirection(activeProject, button.dataset.directionId);
-    await saveActiveProject();
-    renderDesign();
-    refinementSection.scrollIntoView({ behavior: "smooth", block: "start" });
-    showToast("已记录方向选择并建立版本");
-  } catch (error) {
-    showToast(error.message, true);
-  }
-});
-
-refinementForm.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  if (!activeProject) {
-    return;
-  }
-  try {
-    const formData = new FormData(refinementForm);
-    activeProject = await designProvider.refine(activeProject, {
-      optionIds: formData.getAll("optionIds"),
-      customerRequest: formData.get("customerRequest"),
+    if (error?.code !== 4902) throw error;
+    await window.ethereum.request({
+      method: "wallet_addEthereumChain",
+      params: [{
+        chainId: chain.chainIdHex,
+        chainName: chain.chainName,
+        nativeCurrency: chain.nativeCurrency,
+        rpcUrls: chain.rpcUrls,
+        blockExplorerUrls: chain.blockExplorerUrls,
+      }],
     });
-    await saveActiveProject();
-    refinementForm.reset();
-    renderDesign();
-    versionsSection.scrollIntoView({ behavior: "smooth", block: "start" });
-    showToast("已保留客户反馈并建立下一版占位记录");
-  } catch (error) {
-    showToast(error.message, true);
   }
-});
+}
 
-versionsList.addEventListener("click", async (event) => {
-  const button = event.target.closest("[data-confirm-version]");
-  if (!button || !activeProject) {
-    return;
+async function pollJob(jobId) {
+  const started = Date.now();
+  while (Date.now() - started < 6 * 60 * 1000) {
+    const job = await api(`/api/hackathon/jobs/${encodeURIComponent(jobId)}`);
+    setProgress(job.progress, job.currentStep);
+    if (job.status === "succeeded") return job;
+    if (job.status === "failed") throw new Error(job.error?.message || "图片生成失败");
+    await new Promise((resolve) => setTimeout(resolve, 1300));
   }
+  throw new Error("图片生成等待超过 6 分钟，请检查火山方舟状态后刷新。" );
+}
+
+async function createDesign() {
+  clearError();
+  const customerText = elements.customerText.value.trim();
+  if (customerText.length < 6) return showError(new Error("请至少输入一句完整需求"));
+  setBusy(elements.generateButton, true, "Agent 正在创建 V1…");
+  setProgress(3, "正在创建设计项目");
   try {
-    activeProject = confirmVersion(activeProject, button.dataset.confirmVersion);
-    await saveActiveProject();
-    renderDesign();
-    showToast("已确认当前设计方向；这仍是框架占位版本");
+    const result = await api("/api/hackathon/designs", { method: "POST", body: { customerText } });
+    state.projectId = result.projectId;
+    localStorage.setItem("jewelchain-project-id", state.projectId);
+    await pollJob(result.jobId);
+    await refreshTimeline();
+    showToast("V1 已生成，请连接钱包并登记到 Monad");
   } catch (error) {
-    showToast(error.message, true);
+    showError(error);
+  } finally {
+    setBusy(elements.generateButton, false);
   }
-});
+}
 
-document.querySelector("#export-project").addEventListener("click", () => {
-  if (!activeProject) {
+async function reviseDesign() {
+  clearError();
+  if (!state.projectId || !state.timeline) return showError(new Error("请先创建 V1"));
+  const changeRequest = elements.changeRequest.value.trim();
+  if (changeRequest.length < 2) return showError(new Error("请填写修改要求"));
+  const versions = state.timeline.versions || [];
+  const parent = [...versions].reverse().find((item) => item.status === "chain_confirmed");
+  if (!parent) return showError(new Error("请先将上一版本成功登记到 Monad"));
+  setBusy(elements.reviseButton, true, "Agent 正在生成下一版…");
+  setProgress(3, "正在创建修改任务");
+  try {
+    const result = await api(`/api/hackathon/designs/${encodeURIComponent(state.projectId)}/revisions`, {
+      method: "POST",
+      body: { parentVersionId: parent.id, changeRequest },
+    });
+    await pollJob(result.jobId);
+    elements.changeRequest.value = "";
+    await refreshTimeline();
+    showToast(`V${result.versionNumber} 已生成`);
+  } catch (error) {
+    showError(error);
+  } finally {
+    setBusy(elements.reviseButton, false);
+  }
+}
+
+async function sendPreparedTransaction(versionId, kind) {
+  clearError();
+  const wallet = state.walletAddress || await connectWallet();
+  await ensureMonadNetwork();
+  const preparePath = kind === "finalize" ? "prepare-finalize" : "prepare-registration";
+  showToast(kind === "finalize" ? "正在准备最终确认交易" : "Agent 正在保存版本并计算 Hash");
+  const prepared = await api(`/api/hackathon/versions/${encodeURIComponent(versionId)}/${preparePath}`, {
+    method: "POST",
+    body: { walletAddress: wallet },
+  });
+  if (prepared.alreadyConfirmed || prepared.alreadyFinalized) {
+    await refreshTimeline();
     return;
   }
-  const content = JSON.stringify(buildProjectExport(activeProject, knowledgeItems), null, 2);
-  const url = URL.createObjectURL(new Blob([content], { type: "application/json" }));
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `黄金设计-${activeProject.brief.theme}-${new Date().toISOString().slice(0, 10)}.json`;
-  link.click();
+  const transaction = { ...prepared.transaction, from: wallet };
+  const txHash = await window.ethereum.request({ method: "eth_sendTransaction", params: [transaction] });
+  await api(`/api/hackathon/versions/${encodeURIComponent(versionId)}/chain-submission`, {
+    method: "POST",
+    body: { txHash, walletAddress: wallet, kind },
+  });
+  showToast("交易已提交，正在等待 Monad 确认");
+  await pollChain(versionId, kind);
+}
+
+async function pollChain(versionId, kind) {
+  const started = Date.now();
+  while (Date.now() - started < 2 * 60 * 1000) {
+    const status = await api(`/api/hackathon/versions/${encodeURIComponent(versionId)}/chain-status?kind=${kind}`);
+    if (status.status === "confirmed") {
+      showToast(kind === "finalize" ? "最终版本已在 Monad 确认" : "设计版本已登记到 Monad");
+      await refreshTimeline();
+      return status;
+    }
+    if (status.status === "failed") throw new Error(status.errorMessage || "Monad 交易失败");
+    await new Promise((resolve) => setTimeout(resolve, 1600));
+  }
+  throw new Error("交易已提交，但等待确认超时。稍后点击刷新可继续检查。" );
+}
+
+function renderVersion(version) {
+  const requirement = version.structuredRequirement || {};
+  const records = version.chainRecords || [];
+  const registerRecord = records.find((item) => item.kind === "register");
+  const finalRecord = records.find((item) => item.kind === "finalize");
+  const registerAction = ["awaiting_confirmation", "awaiting_wallet_signature", "registration_failed"].includes(version.status)
+    ? `<button class="button primary" data-action="register" data-version-id="${escapeHtml(version.id)}">登记 V${version.versionNumber} 到 Monad</button>`
+    : version.status === "tx_submitted"
+      ? `<button class="button secondary" data-action="check-register" data-version-id="${escapeHtml(version.id)}">检查登记状态</button>`
+      : "";
+  const finalizeAction = version.status === "chain_confirmed"
+    ? `<button class="button secondary" data-action="finalize" data-version-id="${escapeHtml(version.id)}">设为最终确认版</button>`
+    : "";
+  const explorer = finalRecord?.explorerUrl || registerRecord?.explorerUrl;
+  return `
+    <article class="version-card">
+      <img class="version-image" src="${escapeHtml(version.imageUrl || "")}" alt="V${version.versionNumber} 珠宝设计效果图" />
+      <div>
+        <div class="version-top">
+          <div><h3>V${version.versionNumber}</h3><span class="muted">${escapeHtml(version.changeRequest || "初始设计版本")}</span></div>
+          <span class="version-state ${stateClass(version.status)}">${escapeHtml(statusLabel(version.status))}</span>
+        </div>
+        <p class="version-description">${escapeHtml(version.understandingSummary || `${requirement.style || ""}${requirement.productType || "珠宝设计"}`)}</p>
+        <div class="version-fields">
+          <div><span>产品 / 形状</span><b>${escapeHtml(requirement.productType || "-")} · ${escapeHtml(requirement.shape || requirement.structureForms?.[0] || "-")}</b></div>
+          <div><span>风格 / 元素</span><b>${escapeHtml(requirement.style || "-")} · ${escapeHtml((requirement.motifs || []).join("、") || "-")}</b></div>
+          <div><span>contentHash</span><code title="${escapeHtml(version.contentHash || "")}">${escapeHtml(short(version.contentHash || "尚未冻结"))}</code></div>
+          <div><span>父版本 Hash</span><code title="${escapeHtml(version.parentContentHash || "")}">${escapeHtml(short(version.parentContentHash || "-"))}</code></div>
+          <div><span>交易 Hash</span><code title="${escapeHtml(registerRecord?.txHash || version.txHash || "")}">${escapeHtml(short(registerRecord?.txHash || version.txHash || "尚未提交"))}</code></div>
+          <div><span>链下存储</span><b>${escapeHtml(version.storageMode || "尚未冻结")}</b></div>
+        </div>
+        <div class="version-actions">
+          ${registerAction}${finalizeAction}
+          ${explorer ? `<a class="button ghost" href="${escapeHtml(explorer)}" target="_blank" rel="noreferrer">在 Explorer 查看</a>` : ""}
+          ${version.metadataUri ? `<a class="button ghost" href="${escapeHtml(version.metadataUri)}" target="_blank" rel="noreferrer">查看 Metadata</a>` : ""}
+        </div>
+        ${version.storageWarning ? `<div class="version-warning">${escapeHtml(version.storageWarning)}</div>` : ""}
+      </div>
+    </article>`;
+}
+
+async function refreshTimeline() {
+  if (!state.projectId) return;
+  try {
+    const timeline = await api(`/api/hackathon/designs/${encodeURIComponent(state.projectId)}/timeline`);
+    state.timeline = timeline;
+    elements.workspace.hidden = false;
+    elements.projectSummary.innerHTML = `<div><strong>${escapeHtml(timeline.project.title)}</strong><br><span>${escapeHtml(timeline.project.localDesignId)} · 当前 ${timeline.versions.length} 个版本${timeline.project.finalVersionId ? " · 已有最终确认版" : ""}</span></div>${timeline.project.finalVersionId ? '<button class="button secondary" data-download-certificate type="button">下载最终凭证 JSON</button>' : ''}`;
+    elements.timeline.innerHTML = timeline.versions.map(renderVersion).join("") || "<p>暂无版本</p>";
+    const latest = timeline.versions.at(-1);
+    elements.reviseButton.disabled = !latest || latest.status !== "chain_confirmed" || Boolean(timeline.project.finalVersionId);
+  } catch (error) {
+    if (error.code === "PROJECT_NOT_FOUND") {
+      localStorage.removeItem("jewelchain-project-id");
+      state.projectId = "";
+      elements.workspace.hidden = true;
+      return;
+    }
+    showError(error);
+  }
+}
+
+async function downloadCertificate() {
+  if (!state.projectId) return;
+  const certificate = await api(`/api/hackathon/designs/${encodeURIComponent(state.projectId)}/certificate`);
+  const blob = new Blob([JSON.stringify(certificate, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `${certificate.project.localDesignId}_certificate.json`;
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
   URL.revokeObjectURL(url);
-});
-
-document.querySelector("#reset-project").addEventListener("click", async () => {
-  if (!activeProject || !window.confirm("确定清除当前设计及其全部版本吗？专家资料不会删除。")) {
-    return;
-  }
-  await database.delete("projects", activeProject.id);
-  projects = projects.filter((project) => project.id !== activeProject.id);
-  const removedProjectId = activeProject.id;
-  activeProject = null;
-  briefForm.reset();
-  setBriefFormLocked(false);
-  renderDesign();
-  renderStatusSummary();
-  await aiWorkbench?.removeProjectData(removedProjectId);
-  showToast("当前设计已清除");
-});
-
-document.querySelector("#knowledge-kind").addEventListener("change", (event) => {
-  const isPhoto = event.target.value === "photo";
-  document.querySelector("#knowledge-text-group").classList.toggle("is-hidden", isPhoto);
-  document.querySelector("#knowledge-photo-group").classList.toggle("is-hidden", !isPhoto);
-  knowledgeForm.elements.textContent.required = !isPhoto;
-  knowledgeForm.elements.photo.required = isPhoto;
-  knowledgeForm.elements.caption.required = isPhoto;
-});
-
-knowledgeForm.elements.photo.addEventListener("change", () => {
-  if (pendingPreviewUrl) {
-    URL.revokeObjectURL(pendingPreviewUrl);
-    pendingPreviewUrl = null;
-  }
-  const file = knowledgeForm.elements.photo.files[0];
-  if (!file) {
-    photoPreview.classList.add("is-hidden");
-    photoPreview.innerHTML = "";
-    return;
-  }
-  if (!new Set(["image/jpeg", "image/png", "image/webp"]).has(file.type) || file.size > 2 * 1024 * 1024) {
-    knowledgeForm.elements.photo.value = "";
-    photoPreview.classList.add("is-hidden");
-    showToast("照片仅支持 JPG、PNG、WebP，且不能超过 2 MB", true);
-    return;
-  }
-  pendingPreviewUrl = URL.createObjectURL(file);
-  photoPreview.innerHTML = `
-    <img src="${pendingPreviewUrl}" alt="待保存照片预览" />
-    <div><strong>${escapeHtml(file.name)}</strong><p class="field-help">${Math.ceil(file.size / 1024)} KB · 仅预览，不识别内容</p></div>
-  `;
-  photoPreview.classList.remove("is-hidden");
-});
-
-knowledgeForm.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  let savedAssetId = null;
-  try {
-    const formData = new FormData(knowledgeForm);
-    const kind = formData.get("kind");
-    let photo = null;
-
-    if (kind === "photo") {
-      const file = knowledgeForm.elements.photo.files[0];
-      if (!file) {
-        throw new Error("请选择一张照片");
-      }
-      if (!new Set(["image/jpeg", "image/png", "image/webp"]).has(file.type) || file.size > 2 * 1024 * 1024) {
-        throw new Error("照片仅支持 JPG、PNG、WebP，且不能超过 2 MB");
-      }
-      savedAssetId = `asset-${crypto.randomUUID()}`;
-      await database.put("assets", {
-        id: savedAssetId,
-        blob: file,
-        name: file.name,
-        type: file.type,
-        size: file.size,
-      });
-      photo = {
-        assetId: savedAssetId,
-        fileName: file.name,
-        mimeType: file.type,
-        size: file.size,
-        caption: formData.get("caption"),
-      };
-    }
-
-    const item = createKnowledgeItem({
-      ...Object.fromEntries(formData),
-      kind,
-      rightsConfirmed: formData.get("rightsConfirmed") === "on",
-      photo,
-    });
-    await database.put("knowledge", item);
-    knowledgeItems.push(item);
-    knowledgeForm.reset();
-    document.querySelector("#knowledge-text-group").classList.remove("is-hidden");
-    document.querySelector("#knowledge-photo-group").classList.add("is-hidden");
-    knowledgeForm.elements.textContent.required = true;
-    knowledgeForm.elements.photo.required = false;
-    knowledgeForm.elements.caption.required = false;
-    photoPreview.classList.add("is-hidden");
-    photoPreview.innerHTML = "";
-    if (pendingPreviewUrl) {
-      URL.revokeObjectURL(pendingPreviewUrl);
-      pendingPreviewUrl = null;
-    }
-    await renderAll();
-    showToast("资料已保存为待审核状态；系统没有解析或学习其内容");
-  } catch (error) {
-    if (savedAssetId) {
-      await database.delete("assets", savedAssetId);
-    }
-    showToast(error.message, true);
-  }
-});
-
-knowledgeList.addEventListener("click", async (event) => {
-  const card = event.target.closest("[data-knowledge-id]");
-  if (!card) {
-    return;
-  }
-  const item = knowledgeItems.find((candidate) => candidate.id === card.dataset.knowledgeId);
-  if (!item) {
-    return;
-  }
-
-  const reviewButton = event.target.closest("[data-review]");
-  const deleteButton = event.target.closest("[data-delete-knowledge]");
-
-  try {
-    if (reviewButton) {
-      const reviewer = card.querySelector(".reviewer-input").value;
-      const note = card.querySelector(".review-note-input").value;
-      const updated = reviewKnowledgeItem(item, {
-        decision: reviewButton.dataset.review,
-        reviewer,
-        note,
-      });
-      await database.put("knowledge", updated);
-      knowledgeItems = knowledgeItems.map((candidate) => candidate.id === updated.id ? updated : candidate);
-      await renderAll();
-      showToast(`资料状态已更新为“${statusLabel(updated.reviewStatus)}”`);
-    }
-
-    if (deleteButton && window.confirm(`确定删除资料“${item.title}”吗？此操作无法恢复。`)) {
-      await database.delete("knowledge", item.id);
-      if (item.kind === "photo") {
-        await database.delete("assets", item.photo.assetId);
-      }
-      knowledgeItems = knowledgeItems.filter((candidate) => candidate.id !== item.id);
-      await renderAll();
-      showToast("资料已删除");
-    }
-  } catch (error) {
-    showToast(error.message, true);
-  }
-});
-
-function activateView(viewName) {
-  const selectedButton = [...document.querySelectorAll(".nav-button")]
-    .find((button) => button.dataset.view === viewName);
-  if (!selectedButton) return false;
-  document.querySelectorAll(".nav-button").forEach((item) => {
-    item.classList.toggle("is-active", item === selectedButton);
-  });
-  document.querySelectorAll(".view").forEach((view) => {
-    view.classList.toggle("is-active", view.id === `view-${viewName}`);
-  });
-  selectedButton.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
-  return true;
+  showToast("最终确认凭证已下载");
 }
 
-document.querySelectorAll(".nav-button").forEach((button) => {
-  button.addEventListener("click", () => {
-    activateView(button.dataset.view);
-  });
-});
-
-document.querySelector("#clear-all-data").addEventListener("click", async () => {
-  if (!window.confirm("确定清除所有本地设计、版本、专家资料和照片吗？此操作无法恢复。")) {
-    return;
-  }
-  await database.clearAll();
-  projects = [];
-  knowledgeItems = [];
-  activeProject = null;
-  briefForm.reset();
-  knowledgeForm.reset();
-  await aiWorkbench?.resetAfterClear();
-  await renderAll();
-  showToast("全部本地数据已清除");
-});
-
-async function initialize() {
+async function askAgent(question) {
+  if (!state.projectId) return showError(new Error("请先创建设计项目"));
+  const query = String(question || "").trim();
+  if (!query) return;
+  elements.agentAnswer.textContent = "Agent 正在读取版本记录与链上证据…";
   try {
-    const demoMode = isDemoMode(window.location.search);
-    document.querySelector("#demo-mode-banner").classList.toggle("is-hidden", !demoMode);
-    await seedDemoDataIfRequested(database, designProvider, window.location.search);
-    [projects, knowledgeItems] = await Promise.all([
-      database.getAll("projects"),
-      database.getAll("knowledge"),
-    ]);
-    activeProject = [...projects].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0] ?? null;
-    await renderAll();
-    aiWorkbench = await initializeAiWorkbench({
-      database,
-      getProjects: () => [...projects],
-      getKnowledgeItems: () => [...knowledgeItems],
-      showToast,
-      selectProjectDirection: selectAiProjectDirection,
-    });
-    const requestedView = new URLSearchParams(window.location.search).get("view")
-      || (demoMode ? "ai" : null);
-    if (requestedView) activateView(requestedView);
+    const result = await api("/api/hackathon/agent/query", { method: "POST", body: { projectId: state.projectId, question: query } });
+    elements.agentAnswer.innerHTML = `<strong>${escapeHtml(result.answer)}</strong><div class="evidence">${(result.evidence || []).map((item) => `<div><b>${escapeHtml(item.label)}：</b>${item.value?.startsWith?.("http") ? `<a href="${escapeHtml(item.value)}" target="_blank" rel="noreferrer">${escapeHtml(item.value)}</a>` : escapeHtml(item.value)}</div>`).join("")}</div>`;
   } catch (error) {
-    showToast(`初始化失败：${error.message}`, true);
+    elements.agentAnswer.textContent = error.message;
   }
 }
 
-initialize();
+elements.exampleButton.addEventListener("click", () => { elements.customerText.value = EXAMPLE; elements.customerText.focus(); });
+elements.generateButton.addEventListener("click", createDesign);
+elements.reviseButton.addEventListener("click", reviseDesign);
+elements.walletButton.addEventListener("click", () => connectWallet().catch(showError));
+elements.refreshTimelineButton.addEventListener("click", refreshTimeline);
+elements.projectSummary.addEventListener("click", (event) => {
+  if (event.target.closest("[data-download-certificate]")) downloadCertificate().catch(showError);
+});
+
+elements.askAgentButton.addEventListener("click", () => askAgent(elements.agentQuestion.value));
+document.querySelectorAll("[data-question]").forEach((button) => button.addEventListener("click", () => askAgent(button.dataset.question)));
+elements.timeline.addEventListener("click", async (event) => {
+  const button = event.target.closest("button[data-action]");
+  if (!button) return;
+  button.disabled = true;
+  try {
+    if (button.dataset.action === "register") await sendPreparedTransaction(button.dataset.versionId, "register");
+    if (button.dataset.action === "finalize") await sendPreparedTransaction(button.dataset.versionId, "finalize");
+    if (button.dataset.action === "check-register") await pollChain(button.dataset.versionId, "register");
+  } catch (error) {
+    showError(error);
+  } finally {
+    button.disabled = false;
+  }
+});
+
+if (window.ethereum) {
+  window.ethereum.on?.("accountsChanged", (accounts) => {
+    state.walletAddress = accounts?.[0]?.toLowerCase?.() || "";
+    elements.walletButton.textContent = state.walletAddress ? short(state.walletAddress, 6, 4) : "连接钱包";
+    elements.walletStatus.textContent = state.walletAddress ? short(state.walletAddress, 6, 4) : "未连接";
+  });
+}
+
+await loadConfig();
+if (state.projectId) await refreshTimeline();

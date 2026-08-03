@@ -4,282 +4,131 @@ import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { GoldAiService } from "./backend/ai-service.js";
-import { createApiRouter } from "./backend/api-router.js";
-import { LocalComfyUiProvider } from "./backend/local-comfyui-provider.js";
-import { MonadTestnetReadService } from "./backend/monad-testnet-read-service.js";
-import { JsonStateStore } from "./backend/state-store.js";
-import { Web3RegistryService } from "./backend/web3-registry-service.js";
+import { loadEnvFile } from "./backend/env-loader.js";
 
 const rootDir = path.dirname(fileURLToPath(import.meta.url));
+loadEnvFile(rootDir);
+
+const [{ createApiRouter }, { createWorkerApiRouter }, { WorkerWebSocketHub }, { JewelChainStore }, { ArkImageProvider }, { DesignStorageService }, { MonadChainService }, { JewelChainAgent }, { TaskBroker }, { GenerationDispatcher }] = await Promise.all([
+  import("./backend/api-router.js"),
+  import("./backend/worker-api-router.js"),
+  import("./backend/worker-websocket.js"),
+  import("./backend/jewelchain-store.js"),
+  import("./backend/ark-image-provider.js"),
+  import("./backend/storage-service.js"),
+  import("./backend/chain-service.js"),
+  import("./backend/agent-orchestrator.js"),
+  import("./backend/task-broker.js"),
+  import("./backend/generation-dispatcher.js"),
+]);
+
 const publicDir = path.join(rootDir, "public");
-const defaultGeneratedDir = path.join(rootDir, "generated");
-const defaultWeb3StatePath = path.join(rootDir, "data", "web3-backend-state.json");
-const defaultWeb3RuntimePath = path.join(rootDir, "data", "web3-local-runtime.json");
-const defaultWeb3ArtifactPath = path.join(
-  rootDir,
-  "contracts",
-  "artifacts",
-  "DesignRegistry.json",
-);
-const defaultWorkflowPath = path.join(
-  rootDir,
-  "workflows",
-  "sdxl_base_refiner_gold_v1_api.json",
-);
+const generatedDir = path.join(rootDir, "generated");
+const metadataDir = path.join(rootDir, "metadata");
+const statePath = process.env.JEWELCHAIN_STATE_PATH || path.join(rootDir, "data", "jewelchain-state.json");
+const workerUploadDir = path.join(rootDir, "data", "worker-uploads");
+
+const store = new JewelChainStore(statePath);
+const imageProvider = new ArkImageProvider({ generatedDir });
+const storageService = new DesignStorageService({ metadataDir });
+const chainService = new MonadChainService();
+const taskBroker = new TaskBroker({ store, generatedDir, uploadDir: workerUploadDir });
+const generationDispatcher = new GenerationDispatcher({ imageProvider, taskBroker });
+const agent = new JewelChainAgent({ store, generationDispatcher, storageService, chainService, generatedDir });
+let workerHub = null;
+const routeWorkerApi = createWorkerApiRouter(taskBroker, { onTaskChanged: (workerId) => workerHub?.dispatchPending(workerId) });
+const routeApi = createApiRouter(agent, chainService, taskBroker);
 
 const contentTypes = new Map([
-  [".css", "text/css; charset=utf-8"],
   [".html", "text/html; charset=utf-8"],
+  [".css", "text/css; charset=utf-8"],
   [".js", "text/javascript; charset=utf-8"],
   [".json", "application/json; charset=utf-8"],
-  [".svg", "image/svg+xml"],
   [".png", "image/png"],
   [".jpg", "image/jpeg"],
   [".jpeg", "image/jpeg"],
   [".webp", "image/webp"],
+  [".svg", "image/svg+xml"],
 ]);
 
-function resolveContainedPath(baseDir, requested) {
-  const resolved = path.resolve(baseDir, requested);
-  if (resolved !== baseDir && !resolved.startsWith(`${baseDir}${path.sep}`)) return null;
+function safeResolve(base, requested) {
+  const resolved = path.resolve(base, requested);
+  if (resolved !== base && !resolved.startsWith(`${base}${path.sep}`)) return null;
   return resolved;
 }
 
-function resolvePublicPath(requestUrl) {
-  const pathname = decodeURIComponent(new URL(requestUrl, "http://localhost").pathname);
-  const requested = pathname === "/" ? "index.html" : pathname.replace(/^\/+/, "");
-  return resolveContainedPath(publicDir, requested);
-}
-
-function resolveGeneratedPath(requestUrl, generatedDir) {
-  const pathname = decodeURIComponent(new URL(requestUrl, "http://localhost").pathname);
-  if (!pathname.startsWith("/generated/")) return null;
-  return resolveContainedPath(generatedDir, pathname.slice("/generated/".length));
-}
-
-function normalizedHostname(hostname) {
-  return String(hostname || "").toLowerCase().replace(/^\[|\]$/g, "");
-}
-
-function validateRequestAuthority(request) {
-  const rawHost = String(request.headers.host || "");
-  if (!rawHost || /[\s,]/.test(rawHost)) {
-    return { ok: false, code: "INVALID_HOST", message: "请求 Host 无效" };
-  }
-  let hostUrl;
-  try {
-    hostUrl = new URL(`http://${rawHost}`);
-  } catch {
-    return { ok: false, code: "INVALID_HOST", message: "请求 Host 无效" };
-  }
-  const hostname = normalizedHostname(hostUrl.hostname);
-  const localPort = Number(request.socket.localPort);
-  const requestPort = Number(hostUrl.port || 80);
-  if (!["127.0.0.1", "localhost", "::1"].includes(hostname) || requestPort !== localPort) {
-    return {
-      ok: false,
-      code: "INVALID_HOST",
-      message: "本地服务只接受当前回环地址和监听端口",
-    };
-  }
-
-  const origin = String(request.headers.origin || "");
-  if (origin) {
-    let originUrl;
-    try {
-      originUrl = new URL(origin);
-    } catch {
-      return { ok: false, code: "CROSS_ORIGIN_REQUEST", message: "请求 Origin 无效" };
-    }
-    if (originUrl.protocol !== "http:" || originUrl.host.toLowerCase() !== hostUrl.host.toLowerCase()) {
-      return {
-        ok: false,
-        code: "CROSS_ORIGIN_REQUEST",
-        message: "本地服务拒绝跨源请求",
-      };
-    }
-  }
-  if (String(request.headers["sec-fetch-site"] || "").toLowerCase() === "cross-site") {
-    return {
-      ok: false,
-      code: "CROSS_ORIGIN_REQUEST",
-      message: "本地服务拒绝跨站请求",
-    };
-  }
-  return { ok: true };
-}
-
-function sendJsonError(response, statusCode, code, message) {
-  const body = JSON.stringify({
-    error: {
-      code,
-      message,
-      retryable: false,
-      details: null,
-    },
-  });
-  response.writeHead(statusCode, {
-    "Content-Type": "application/json; charset=utf-8",
-    "Content-Length": Buffer.byteLength(body),
-    "Cache-Control": "no-store",
-    "X-Content-Type-Options": "nosniff",
-  });
-  response.end(body);
-}
-
-async function serveFile(request, response, filePath, {
-  instanceToken = "",
-  imageOnly = false,
-} = {}) {
+async function serveFile(request, response, filePath, { asset = false } = {}) {
   try {
     await access(filePath);
-    const fileStat = await stat(filePath);
-    if (!fileStat.isFile()) throw new Error("Not a file");
+    const info = await stat(filePath);
+    if (!info.isFile()) throw new Error("not file");
     const extension = path.extname(filePath).toLowerCase();
-    if (imageOnly && ![".png", ".jpg", ".jpeg", ".webp"].includes(extension)) {
-      response.writeHead(415, { "Content-Type": "text/plain; charset=utf-8" });
-      response.end("Unsupported generated asset");
-      return;
-    }
     const headers = {
-      "Content-Type": contentTypes.get(extension) ?? "application/octet-stream",
-      "Content-Length": fileStat.size,
-      "Cache-Control": imageOnly ? "private, max-age=3600" : "no-store",
-      "Content-Security-Policy": "default-src 'self'; img-src 'self' blob:; style-src 'self'; script-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
-      "Referrer-Policy": "no-referrer",
+      "Content-Type": contentTypes.get(extension) || "application/octet-stream",
+      "Content-Length": info.size,
+      "Cache-Control": asset ? "private, max-age=3600" : "no-store",
       "X-Content-Type-Options": "nosniff",
-      "X-Frame-Options": "DENY",
+      "Referrer-Policy": "no-referrer",
+      "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+      "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob: https:; connect-src 'self' https:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
     };
-    if (instanceToken) headers["X-Gold-Demo-Instance"] = instanceToken;
     response.writeHead(200, headers);
-    if (request.method === "HEAD") {
-      response.end();
-      return;
-    }
-    createReadStream(filePath).pipe(response);
+    if (request.method === "HEAD") response.end();
+    else createReadStream(filePath).pipe(response);
   } catch {
     response.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
     response.end("Not found");
   }
 }
 
-export function createAppServer({
-  instanceToken = process.env.GOLD_DEMO_INSTANCE_TOKEN || "",
-  statePath = process.env.GOLD_AI_STATE_PATH || path.join(rootDir, "data", "ai-backend-state.json"),
-  generatedDir = process.env.GOLD_AI_GENERATED_DIR || defaultGeneratedDir,
-  workflowPath = process.env.COMFYUI_WORKFLOW_PATH || defaultWorkflowPath,
-  comfyUiBaseUrl = process.env.COMFYUI_BASE_URL || "http://127.0.0.1:8188",
-  now,
-  provider,
-  demoCompletionMs,
-  web3Service,
-  monadTestnetReadService,
-  web3StatePath = process.env.GOLD_WEB3_STATE_PATH || defaultWeb3StatePath,
-  web3RuntimePath = process.env.GOLD_WEB3_RUNTIME_PATH || defaultWeb3RuntimePath,
-  web3ArtifactPath = process.env.GOLD_WEB3_ARTIFACT_PATH || defaultWeb3ArtifactPath,
-  web3RpcUrl = process.env.LOCAL_EVM_RPC_URL || "http://127.0.0.1:8545",
-  web3ChainId = Number(process.env.LOCAL_EVM_CHAIN_ID || 31337),
-} = {}) {
-  const store = new JsonStateStore(statePath);
-  const comfyProvider = provider ?? new LocalComfyUiProvider({
-    baseUrl: comfyUiBaseUrl,
-    workflowPath,
-    generatedDir,
-  });
-  const aiService = new GoldAiService(store, {
-    provider: comfyProvider,
-    ...(now ? { now } : {}),
-    ...(demoCompletionMs !== undefined ? { demoCompletionMs } : {}),
-  });
-  const registryService = web3Service ?? new Web3RegistryService({
-    statePath: web3StatePath,
-    runtimePath: web3RuntimePath,
-    artifactPath: web3ArtifactPath,
-    generatedDir,
-    candidateResolver: (input) => aiService.getChainConfirmationCandidate(input),
-    rpcUrl: web3RpcUrl,
-    chainId: web3ChainId,
-  });
-  const publicTestnetReadService = monadTestnetReadService
-    ?? new MonadTestnetReadService();
-  const routeApi = createApiRouter(aiService, {
-    web3Service: registryService,
-    monadTestnetReadService: publicTestnetReadService,
-  });
-
-  return http.createServer(async (request, response) => {
+export function createServer() {
+  const server = http.createServer(async (request, response) => {
     if (!request.url) {
       response.writeHead(400);
       response.end("Invalid request");
       return;
     }
-    const authority = validateRequestAuthority(request);
-    if (!authority.ok) {
-      sendJsonError(response, 403, authority.code, authority.message);
-      return;
-    }
-
-    let requestUrl;
-    try {
-      requestUrl = new URL(request.url, "http://localhost");
-    } catch {
-      response.writeHead(400);
-      response.end("Invalid request");
-      return;
-    }
-
-    if (requestUrl.pathname.startsWith("/api/")) {
-      if (request.method === "POST") {
-        const mediaType = String(request.headers["content-type"] || "")
-          .split(";", 1)[0]
-          .trim()
-          .toLowerCase();
-        if (mediaType !== "application/json") {
-          sendJsonError(
-            response,
-            415,
-            "UNSUPPORTED_MEDIA_TYPE",
-            "写入接口只接受 application/json",
-          );
-          return;
-        }
-      }
-      if (await routeApi(request, response, requestUrl)) return;
-    }
-
-    if (!["GET", "HEAD"].includes(request.method ?? "")) {
+    const url = new URL(request.url, "http://localhost");
+    if (await routeWorkerApi(request, response, url)) return;
+    if (await routeApi(request, response, url)) return;
+    if (!["GET", "HEAD"].includes(request.method || "")) {
       response.writeHead(405, { Allow: "GET, HEAD" });
       response.end("Method not allowed");
       return;
     }
-    try {
-      const generatedPath = resolveGeneratedPath(request.url, generatedDir);
-      if (generatedPath) {
-        await serveFile(request, response, generatedPath, { instanceToken, imageOnly: true });
-        return;
-      }
-      const filePath = resolvePublicPath(request.url);
-      if (!filePath) {
-        response.writeHead(400);
-        response.end("Invalid path");
-        return;
-      }
-      await serveFile(request, response, filePath, { instanceToken });
-    } catch {
-      response.writeHead(400, { "Content-Type": "text/plain; charset=utf-8" });
-      response.end("Invalid path");
+    if (url.pathname.startsWith("/generated/")) {
+      const file = safeResolve(generatedDir, decodeURIComponent(url.pathname.slice("/generated/".length)));
+      if (!file) return serveFile(request, response, "", { asset: true });
+      return serveFile(request, response, file, { asset: true });
     }
+    if (url.pathname.startsWith("/metadata/")) {
+      const file = safeResolve(metadataDir, decodeURIComponent(url.pathname.slice("/metadata/".length)));
+      if (!file) return serveFile(request, response, "", { asset: true });
+      return serveFile(request, response, file, { asset: true });
+    }
+    const requested = url.pathname === "/" ? "index.html" : decodeURIComponent(url.pathname.replace(/^\/+/, ""));
+    const file = safeResolve(publicDir, requested);
+    if (!file) return serveFile(request, response, "");
+    return serveFile(request, response, file);
   });
+  workerHub = new WorkerWebSocketHub({ server, taskBroker });
+  taskBroker.setNotifier((workerId) => workerHub?.dispatchPending(workerId));
+  taskBroker.start();
+  server.on("close", () => taskBroker.stop());
+  return server;
 }
 
-const isMainModule = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
-
-if (isMainModule) {
+const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (isMain) {
   const port = Number(process.env.PORT || 4173);
-  const server = createAppServer();
-  server.listen(port, "127.0.0.1", () => {
-    console.log(`黄金产业 AI 智能设计框架：http://127.0.0.1:${port}`);
-    console.log("后端 API 已启用；ComfyUI 只有在实时健康检查通过时才显示为可用。");
+  const host = String(process.env.HOST || "127.0.0.1");
+  const server = createServer();
+  server.listen(port, host, () => {
+    const displayHost = host === "0.0.0.0" ? "127.0.0.1" : host;
+    console.log(`JewelChain Studio v0.8.0 Master: http://${displayHost}:${port}`);
+    console.log(`Health: http://${displayHost}:${port}/api/health`);
+    console.log(`Worker WS: ws://${displayHost}:${port}/ws/worker`);
+    console.log(`Monad contract: ${chainService.contractAddress}`);
+    agent.resumePendingJobs().catch((error) => console.error(`Resume jobs failed: ${error.message}`));
   });
 }
