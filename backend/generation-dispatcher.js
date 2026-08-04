@@ -18,10 +18,10 @@ export class GenerationDispatcher {
           ? Boolean(broker)
           : Boolean(this.imageProvider?.configured || broker),
       notice: this.mode === "worker"
-        ? "生图任务由云端 Master 排队，本地 Image Worker 领取执行"
+        ? "生图任务由调度服务排队，本地生图端自动处理"
         : this.mode === "direct"
-          ? "Master 直接调用图片 API"
-          : "优先使用在线 Image Worker；无 Worker 时由 Master 直接调用图片 API",
+          ? "Master API 直接调用图片服务（备用）"
+          : "优先使用在线生图端；无生图端时由 Master API 直接调用图片服务（备用）",
     };
   }
 

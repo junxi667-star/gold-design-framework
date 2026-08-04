@@ -1,3 +1,14 @@
+## 1.3.0-copy-refinement - 2026-08-04
+
+- 统一普通用户主流程文案，减少未解释的技术术语；
+- 修复 Agent 快捷按钮与实际问题不一致；
+- 将“等待确认”明确为“等待您确认设计”，并区分钱包签名、链上确认和最终版确认；
+- V1 首次出现解释为“第一版设计（V1）”；
+- 解释生成下一版前登记上一版的原因与用户价值；
+- 增加 Master、Image Worker、Metadata、contentHash 术语说明；
+- 保留 Cloudflare Pages / Master / Image Worker 架构、域名和 `.env` 配置不变；
+- 保留关闭 JewelChain BAT 后 `demo.jewelchain.xyz` 仍可访问的离线浏览能力。
+
 ## 1.2.0-pages-master-worker - 2026-08-03
 
 - 新增 Cloudflare Pages 独立静态前端包；

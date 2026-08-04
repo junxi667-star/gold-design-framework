@@ -1,8 +1,17 @@
-# JewelChain Studio v1.2.0 — Pages / Master / Worker
+# JewelChain Studio v1.3.0 — 文案清晰化最终版
 
 > Monad Playground 黑客松最终升级版：更明亮的黄金 UI、明显流动粒子特效、Cloud-ready Master / 本地 Image Worker 架构与可验证版本树。
 
-## v1.2.0 核心变化
+
+本版本在 **不改变后端架构、API 域名、Cloudflare Pages 部署方式和 Master / Image Worker 通信协议** 的前提下，完成面向普通用户与黑客松评委的文案统一：
+
+- 主流程优先使用中文业务语言；
+- 技术区保留 Master、Image Worker、Metadata、contentHash，并提供首次解释；
+- 统一设计确认、钱包签名、链上确认和最终版确认四类状态；
+- Agent 快捷问题与实际发送问题逐字一致；
+- 保留 `demo.jewelchain.xyz → Cloudflare Pages`，关闭 BAT 后网站仍可浏览并显示调度服务离线。
+
+## v1.3.0 核心变化
 
 - `pages-frontend/` 可独立部署到 Cloudflare Pages，电脑关闭后网站仍能显示。
 - 前端通过 `runtime-config.js` 调用 `https://api.jewelchain.xyz`。
@@ -38,7 +47,7 @@ JewelChain Studio 是一个面向 Monad Playground 黑客松的 AI 珠宝设计�
 → 时间线与 Agent 问答提供链上证据
 ```
 
-## v1.2.0 架构
+## v1.3.0 架构
 
 ```text
 浏览器

@@ -1,7 +1,7 @@
 @echo off
 setlocal EnableExtensions
 cd /d "%~dp0"
-title JewelChain Studio v1.2.0
+title JewelChain Studio v1.3.0
 
 if not exist "%~dp0runtime\node.exe" (
   echo ERROR: runtime\node.exe is missing. Extract the ZIP completely.
@@ -49,7 +49,7 @@ if not defined EDGE_PATH if exist "%ProgramFiles%\Microsoft\Edge\Application\mse
 if defined EDGE_PATH (start "" "%EDGE_PATH%" --app="%APP_URL%" --start-maximized) else (start "" "%APP_URL%")
 
 echo.
-echo JewelChain Studio v1.2.0 started:
+echo JewelChain Studio v1.3.0 started:
 echo Master UI/API: %APP_URL%
 echo Image Worker: background service
 echo Worker log: %~dp0logs\image-worker.log

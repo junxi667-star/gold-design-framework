@@ -1,4 +1,4 @@
-# JewelChain Studio v1.2.0：Cloudflare Pages + Master + Image Worker
+# JewelChain Studio v1.3.0：Cloudflare Pages + Master + Image Worker
 
 ## 目标架构
 
@@ -56,4 +56,4 @@ Worker 优先通过 WebSocket 接收任务；断线时自动使用 HTTP 注册�
 
 ## gRPC
 
-v1.2.0 没有宣称已实现 gRPC。黑客松最终版继续采用 WebSocket 主通道 + HTTP 可靠兜底；gRPC 预留为后续生产化升级，避免当前引入 HTTP/2、protobuf、反向代理和证书联调风险。
+v1.3.0 没有宣称已实现 gRPC。黑客松最终版继续采用 WebSocket 主通道 + HTTP 可靠兜底；gRPC 预留为后续生产化升级，避免当前引入 HTTP/2、protobuf、反向代理和证书联调风险。
