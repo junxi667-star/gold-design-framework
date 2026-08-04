@@ -1,4 +1,4 @@
-# JewelChain Studio v1.2.0 UI 升级说明
+# JewelChain Studio v1.3.0 UI 升级说明
 
 ## 视觉定位
 

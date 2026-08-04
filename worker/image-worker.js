@@ -11,7 +11,7 @@ const rootDir = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 loadEnvFile(rootDir);
 
 const workerId = String(process.env.WORKER_ID || `${os.hostname().toLowerCase()}-image-01`).trim();
-const workerVersion = "1.2.0";
+const workerVersion = "1.3.0";
 const token = String(process.env.WORKER_TOKEN || "").trim();
 const masterBaseUrl = String(process.env.MASTER_BASE_URL || "http://127.0.0.1:4173").replace(/\/+$/, "");
 const pollIntervalMs = Math.max(1500, Number(process.env.WORKER_POLL_INTERVAL_MS || 5000));
@@ -134,12 +134,12 @@ async function executeTask(task) {
   renewTimer.unref?.();
   try {
     if (task.type !== "generate-image") throw Object.assign(new Error(`不支持任务类型：${task.type}`), { code: "UNSUPPORTED_TASK_TYPE" });
-    await progress(task, 20, "Image Worker 正在调用 Seedream");
+    await progress(task, 20, "生图端正在调用图片模型");
     const generated = await provider.generate({
       prompt: task.payload?.prompt,
       filenamePrefix: task.payload?.filenamePrefix || `task_${task.id}`,
     });
-    await progress(task, 80, "图片生成完成，正在上传 Master");
+    await progress(task, 80, "图片生成完成，正在上传调度服务");
     const upload = await uploadImage(task, generated);
     await progress(task, 94, "图片已上传，正在提交任务结果");
     await api(`/api/v1/workers/tasks/${encodeURIComponent(task.id)}/complete`, {
@@ -191,7 +191,7 @@ function connectWebSocket() {
     log("当前 Node 不支持 WebSocket，自动使用 HTTP 轮询兜底");
     return;
   }
-  log(`连接 Master：${wsUrl()}`);
+  log(`连接 Master（调度服务）：${wsUrl()}`);
   const ws = new WebSocket(wsUrl());
   websocket = ws;
   ws.addEventListener("open", () => {

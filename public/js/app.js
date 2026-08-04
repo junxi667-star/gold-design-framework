@@ -29,6 +29,7 @@ const elements = {
   customerText: $("#customerText"),
   customerTextCount: $("#customerTextCount"),
   accessCode: $("#accessCode"),
+  accessCodeRequirement: $("#accessCodeRequirement"),
   exampleButton: $("#exampleButton"),
   generateButton: $("#generateButton"),
   jobPanel: $("#jobPanel"),
@@ -151,7 +152,7 @@ async function api(path, { method = "GET", body } = {}) {
     });
   } catch (error) {
     const target = API_BASE_URL || "当前域名";
-    throw new Error(`Master 暂时离线（${target}）。网站仍可浏览，实时生图与 Agent 功能将在服务恢复后可用。`, { cause: error });
+    throw new Error(`Master（调度服务）暂时离线（${target}）。网站仍可浏览，实时生图与 Agent 功能将在服务恢复后可用。`, { cause: error });
   }
   const raw = await response.text();
   let payload;
@@ -215,12 +216,12 @@ function statusLabel(status) {
   return ({
     generating: "正在生成",
     generation_failed: "生成失败",
-    awaiting_confirmation: "等待确认",
+    awaiting_confirmation: "等待您确认设计",
     awaiting_wallet_signature: "等待钱包签名",
-    tx_submitted: "交易确认中",
-    chain_confirmed: "已登记 Monad",
+    tx_submitted: "交易已提交，等待链上确认",
+    chain_confirmed: "已登记到 Monad",
     registration_failed: "登记失败",
-    finalized: "最终确认版",
+    finalized: "最终版已确认",
   })[status] || status || "未知";
 }
 
@@ -241,12 +242,12 @@ function updateWalletUi(address) {
 function setMasterAvailability(online, message = "") {
   state.masterOnline = Boolean(online);
   if (elements.offlineNotice) elements.offlineNotice.hidden = state.masterOnline;
-  if (elements.offlineTitle) elements.offlineTitle.textContent = state.masterOnline ? "Master 已恢复" : "Master 暂时离线";
+  if (elements.offlineTitle) elements.offlineTitle.textContent = state.masterOnline ? "Master（调度服务）已恢复" : "Master（调度服务）暂时离线";
   if (elements.offlineText && message) elements.offlineText.textContent = message;
   for (const button of [elements.generateButton, elements.reviseButton, elements.askAgentButton, elements.refreshTimelineButton]) {
     if (!button) continue;
     button.disabled = !state.masterOnline;
-    button.title = state.masterOnline ? "" : "Master 离线，服务恢复后自动可用";
+    button.title = state.masterOnline ? "" : "Master（调度服务）离线，服务恢复后自动可用";
   }
 }
 
@@ -265,26 +266,32 @@ async function loadConfig() {
     const imageOk = workerMode ? onlineWorkers > 0 : generation.mode === "hybrid" ? (onlineWorkers > 0 || directConfigured) : directConfigured;
 
     if (workerMode) {
-      elements.imageStatus.textContent = onlineWorkers > 0 ? `Image Worker 在线（${onlineWorkers}）` : "等待 Image Worker 上线";
+      elements.imageStatus.textContent = onlineWorkers > 0 ? `生图端在线（${onlineWorkers}）` : "等待生图端上线";
     } else if (generation.mode === "hybrid") {
-      elements.imageStatus.textContent = onlineWorkers > 0 ? `Worker 优先（${onlineWorkers} 在线）` : directConfigured ? "Master API 直调兜底" : "生图端未配置";
+      elements.imageStatus.textContent = onlineWorkers > 0 ? `生图端优先（${onlineWorkers} 在线）` : directConfigured ? "Master API 直接调用（备用）" : "生图端未配置";
     } else {
       elements.imageStatus.textContent = directConfigured ? `${generation.directProvider?.model || config.imageProvider?.model || "图片模型"} 已配置` : "未配置 API Key";
     }
 
     elements.storageStatus.textContent = config.storage?.effectiveMode === "supabase" ? "Supabase 云端存储" : "本地安全存储";
-    elements.serviceBadge.innerHTML = `<i></i>${imageOk ? "Master 与生图端已就绪" : workerMode ? "Master 在线，等待 Worker 领取任务" : "Master 在线，生图配置待检查"}`;
+    elements.serviceBadge.innerHTML = `<i></i>${imageOk ? "调度服务与生图端已就绪" : workerMode ? "调度服务在线，等待生图端" : "调度服务在线，生图配置待检查"}`;
     elements.serviceBadge.className = `badge ${imageOk ? "ok" : "warning"}`;
-    if (config.demoAccessCodeRequired) elements.accessCode.placeholder = "必须填写项目访问码";
+    if (config.demoAccessCodeRequired) {
+      elements.accessCode.placeholder = "该项目需要访问码，请填写";
+      if (elements.accessCodeRequirement) elements.accessCodeRequirement.textContent = "必填";
+    } else {
+      elements.accessCode.placeholder = "如无需访问码，请留空";
+      if (elements.accessCodeRequirement) elements.accessCodeRequirement.textContent = "选填";
+    }
 
     const chain = await api("/api/hackathon/chain/status");
-    elements.chainStatus.textContent = chain.reachable && chain.contractCodePresent ? "Monad 合约可访问" : "链或合约待检查";
+    elements.chainStatus.textContent = chain.reachable && chain.contractCodePresent ? "Monad 合约可访问" : "正在检查链上合约";
   } catch (error) {
-    setMasterAvailability(false, "网站、项目介绍、粒子与动效仍可浏览；实时生图、项目数据和 Agent 问答将在 Master 恢复后自动可用。");
-    elements.serviceBadge.innerHTML = "<i></i>Master 暂时离线";
+    setMasterAvailability(false, "网站介绍与动画效果仍可正常浏览；实时生图、项目数据和 Agent 问答将在调度服务恢复后自动可用。");
+    elements.serviceBadge.innerHTML = "<i></i>Master（调度服务）暂时离线";
     elements.serviceBadge.className = "badge warning";
-    elements.imageStatus.textContent = "等待 Master / Worker";
-    elements.storageStatus.textContent = "Master 离线";
+    elements.imageStatus.textContent = "等待调度服务 / 生图端";
+    elements.storageStatus.textContent = "调度服务离线";
     elements.chainStatus.textContent = "实时检查暂停";
   } finally {
     state.statusBusy = false;
@@ -353,10 +360,10 @@ async function pollJob(jobId) {
 
 async function createDesign() {
   clearError();
-  if (!state.masterOnline) return showError(new Error("Master 暂时离线。网站仍可浏览，服务恢复后再提交生图任务。"));
+  if (!state.masterOnline) return showError(new Error("Master（调度服务）暂时离线。网站仍可浏览，服务恢复后再提交生图任务。"));
   const customerText = elements.customerText.value.trim();
-  if (customerText.length < 6) return showError(new Error("请至少输入一句完整需求"));
-  setBusy(elements.generateButton, true, "Agent 正在创建 V1…");
+  if (customerText.length < 6) return showError(new Error("请输入更详细的需求描述，至少包含一句完整描述"));
+  setBusy(elements.generateButton, true, "正在生成第一版设计（V1）…");
   setProgress(3, "正在创建设计项目");
   elements.generateButton.scrollIntoView({ behavior: "smooth", block: "center" });
   try {
@@ -376,13 +383,13 @@ async function createDesign() {
 
 async function reviseDesign() {
   clearError();
-  if (!state.masterOnline) return showError(new Error("Master 暂时离线，无法创建新版本。"));
+  if (!state.masterOnline) return showError(new Error("Master（调度服务）暂时离线，暂时无法创建新版本。"));
   if (!state.projectId || !state.timeline) return showError(new Error("请先创建 V1"));
   const changeRequest = elements.changeRequest.value.trim();
   if (changeRequest.length < 2) return showError(new Error("请填写修改要求"));
   const versions = state.timeline.versions || [];
   const parent = [...versions].reverse().find((item) => ["chain_confirmed", "finalized"].includes(item.status));
-  if (!parent) return showError(new Error("请先将上一版本成功登记到 Monad"));
+  if (!parent) return showError(new Error("请先登记当前版本。登记后，系统才能将它记录为下一版的来源。"));
   setBusy(elements.reviseButton, true, "Agent 正在生成下一版…");
   setProgress(3, "正在创建修改任务");
   try {
@@ -439,7 +446,7 @@ async function pollChain(versionId, kind) {
     if (status.status === "failed") throw new Error(status.errorMessage || "Monad 交易失败");
     await new Promise((resolve) => setTimeout(resolve, 1600));
   }
-  throw new Error("交易已提交，但等待确认超时。稍后点击刷新可继续检查。");
+  throw new Error("交易已提交，但等待链上确认超时。稍后点击刷新可继续检查。");
 }
 
 function hashField(label, value, fallback) {
@@ -458,7 +465,7 @@ function renderVersion(version) {
       ? `<button class="button secondary" data-action="check-register" data-version-id="${escapeHtml(version.id)}">检查登记状态</button>`
       : "";
   const finalizeAction = version.status === "chain_confirmed"
-    ? `<button class="button secondary" data-action="finalize" data-version-id="${escapeHtml(version.id)}">设为最终确认版</button>`
+    ? `<button class="button secondary" data-action="finalize" data-version-id="${escapeHtml(version.id)}">确认为最终版</button>`
     : "";
   const explorer = finalRecord?.explorerUrl || registerRecord?.explorerUrl;
   const transactionHash = registerRecord?.txHash || version.txHash || "";
@@ -480,15 +487,15 @@ function renderVersion(version) {
         <div class="version-fields">
           <div><span>产品 / 形状</span><b>${escapeHtml(requirement.productType || "-")} · ${escapeHtml(requirement.shape || requirement.structureForms?.[0] || "-")}</b></div>
           <div><span>风格 / 元素</span><b>${escapeHtml(requirement.style || "-")} · ${escapeHtml((requirement.motifs || []).join("、") || "-")}</b></div>
-          ${hashField("contentHash", version.contentHash, "尚未冻结")}
-          ${hashField("父版本 Hash", version.parentContentHash, "首版无父版本")}
-          ${hashField("交易 Hash", transactionHash, "尚未提交")}
-          <div><span>链下存储</span><b>${escapeHtml(version.storageMode || "尚未冻结")}</b></div>
+          ${hashField("内容指纹 (contentHash)", version.contentHash, "尚未生成")}
+          ${hashField("上一版指纹", version.parentContentHash, "首版无上一版本")}
+          ${hashField("交易哈希", transactionHash, "尚未提交")}
+          <div><span>链下存储</span><b>${escapeHtml(version.storageMode || "尚未存储")}</b></div>
         </div>
         <div class="version-actions">
           ${registerAction}${finalizeAction}
           ${explorer ? `<a class="button glass" href="${escapeHtml(explorer)}" target="_blank" rel="noreferrer">在 Explorer 查看</a>` : ""}
-          ${version.metadataUri ? `<a class="button glass" href="${escapeHtml(resolveAssetUrl(version.metadataUri))}" target="_blank" rel="noreferrer">查看 Metadata</a>` : ""}
+          ${version.metadataUri ? `<a class="button glass" href="${escapeHtml(resolveAssetUrl(version.metadataUri))}" target="_blank" rel="noreferrer">查看版本信息</a>` : ""}
         </div>
         ${version.storageWarning ? `<div class="version-warning">${escapeHtml(version.storageWarning)}</div>` : ""}
       </div>
@@ -569,13 +576,13 @@ async function downloadCertificate() {
 
 async function askAgent(question) {
   if (!state.masterOnline) {
-    elements.agentAnswer.innerHTML = '<span class="agent-answer-icon">!</span><p>Master 暂时离线。网站与动效仍可浏览，Agent 问答将在服务恢复后可用。</p>';
+    elements.agentAnswer.innerHTML = '<span class="agent-answer-icon">!</span><p>Master（调度服务）暂时离线。网站介绍与动画效果仍可浏览，Agent 问答将在服务恢复后可用。</p>';
     return;
   }
   if (!state.projectId) return showError(new Error("请先创建设计项目"));
   const query = String(question || "").trim();
   if (!query) return;
-  elements.agentAnswer.innerHTML = '<span class="agent-answer-icon">AI</span><p>Agent 正在读取版本记录与链上证据…</p>';
+  elements.agentAnswer.innerHTML = '<span class="agent-answer-icon">AI</span><p>Agent 正在查询版本记录与链上交易证据…</p>';
   try {
     const result = await api("/api/hackathon/agent/query", { method: "POST", body: { projectId: state.projectId, question: query } });
     elements.agentAnswer.innerHTML = `<span class="agent-answer-icon">AI</span><div><strong>${escapeHtml(result.answer)}</strong><div class="evidence">${(result.evidence || []).map((item) => `<div><b>${escapeHtml(item.label)}：</b>${item.value?.startsWith?.("http") ? `<a href="${escapeHtml(item.value)}" target="_blank" rel="noreferrer">${escapeHtml(item.value)}</a>` : escapeHtml(item.value)}</div>`).join("")}</div></div>`;
@@ -790,7 +797,11 @@ elements.askAgentButton.addEventListener("click", () => askAgent(elements.agentQ
 elements.agentQuestion.addEventListener("keydown", (event) => {
   if (event.key === "Enter") askAgent(elements.agentQuestion.value);
 });
-$$('[data-question]').forEach((button) => button.addEventListener("click", () => askAgent(button.dataset.question)));
+$$('[data-question]').forEach((button) => button.addEventListener("click", () => {
+  const question = button.dataset.question || "";
+  elements.agentQuestion.value = question;
+  askAgent(question);
+}));
 
 elements.timeline.addEventListener("click", async (event) => {
   const actionTarget = event.target.closest("[data-action]");

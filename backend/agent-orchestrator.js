@@ -109,7 +109,7 @@ export class JewelChainAgent {
   async config() {
     const generation = await this.generation.status();
     return {
-      version: "1.2.0",
+      version: "1.3.0",
       agent: {
         name: "JewelChain Design Agent",
         mode: "deterministic-tool-orchestration",
@@ -125,7 +125,7 @@ export class JewelChainAgent {
 
   async createDesign({ customerText, formFields = {} } = {}) {
     const raw = text(customerText);
-    if (raw.length < 6) throw agentError("请至少输入一句完整的珠宝需求", { code: "INVALID_REQUIREMENT" });
+    if (raw.length < 6) throw agentError("请输入更详细的珠宝需求，至少包含一句完整描述", { code: "INVALID_REQUIREMENT" });
     const parsed = await this.parser.parse({ customerText: raw, formFields, analysisMode: "local" });
     const requirement = normalizeRequirementForGeneration(parsed.structuredRequirement);
     const projectId = randomUUID();
@@ -196,9 +196,9 @@ export class JewelChainAgent {
     const project = state.projects.find((item) => item.id === projectId);
     if (!project) throw agentError("设计项目不存在", { code: "PROJECT_NOT_FOUND", httpStatus: 404 });
     const parent = state.versions.find((item) => item.id === parentVersionId && item.projectId === projectId);
-    if (!parent) throw agentError("父版本不存在", { code: "PARENT_VERSION_NOT_FOUND", httpStatus: 404 });
+    if (!parent) throw agentError("作为修改来源的上一版本不存在", { code: "PARENT_VERSION_NOT_FOUND", httpStatus: 404 });
     if (parent.status !== "chain_confirmed") {
-      throw agentError("请先把上一版本成功登记到 Monad，再生成下一版本", { code: "PARENT_NOT_ONCHAIN", httpStatus: 409 });
+      throw agentError("为确保版本来源可验证，请先将当前版本登记到 Monad。登记完成后，系统才能把它记录为下一版的来源", { code: "PARENT_NOT_ONCHAIN", httpStatus: 409 });
     }
     if (project.finalVersionId) throw agentError("该设计已经确定最终版本，不能继续新增版本", { code: "DESIGN_FINALIZED", httpStatus: 409 });
     const parsedChange = await this.parser.parse({ customerText: change, formFields: {}, analysisMode: "local" });
@@ -531,7 +531,7 @@ export class JewelChainAgent {
     const version = state.versions.find((item) => item.id === versionId);
     if (!version) throw agentError("设计版本不存在", { code: "VERSION_NOT_FOUND", httpStatus: 404 });
     if (version.status === "finalized") return { alreadyFinalized: true, version: publicVersion(version) };
-    if (version.status !== "chain_confirmed") throw agentError("只有已登记成功的版本才能设为最终版", { code: "VERSION_NOT_REGISTERED", httpStatus: 409 });
+    if (version.status !== "chain_confirmed") throw agentError("只有已登记到 Monad 的版本才能确认为最终版", { code: "VERSION_NOT_REGISTERED", httpStatus: 409 });
     if (normalizeAddress(version.registrant) !== wallet) throw agentError("只有原登记钱包可以确认最终版", { code: "UNAUTHORIZED_FINALIZER", httpStatus: 403 });
     return { versionId, ...this.chain.prepareFinalize({ designId: version.designId, contentHash: version.contentHash }) };
   }
@@ -592,43 +592,65 @@ export class JewelChainAgent {
     const versions = timeline.versions;
     const finalVersion = versions.find((item) => item.id === timeline.project.finalVersionId || item.status === "finalized");
     if (/最终|定稿|确认版/.test(query)) {
-      if (!finalVersion) return { intent: "final_version", answer: "当前还没有完成链上最终确认。请先将一个已登记版本设为最终版。", evidence: [] };
+      if (!finalVersion) return { intent: "final_version", answer: "当前还没有确认最终版。请先将一个已登记版本确认为最终版。", evidence: [] };
       const record = finalVersion.chainRecords.find((item) => item.kind === "finalize" && item.status === "confirmed");
       return {
         intent: "final_version",
-        answer: `最终确认版是 V${finalVersion.versionNumber}。它的内容指纹为 ${finalVersion.contentHash}，最终确认交易已经在 Monad 上完成。`,
-        evidence: [{ label: "版本", value: `V${finalVersion.versionNumber}` }, { label: "contentHash", value: finalVersion.contentHash }, { label: "交易", value: record?.txHash || "" }, { label: "Explorer", value: record?.explorerUrl || "" }],
+        answer: `被确认为最终版的是 V${finalVersion.versionNumber}。它的内容指纹为 ${finalVersion.contentHash}，最终版确认交易已在 Monad 上完成。`,
+        evidence: [{ label: "版本", value: `V${finalVersion.versionNumber}` }, { label: "内容指纹 (contentHash)", value: finalVersion.contentHash }, { label: "交易", value: record?.txHash || "" }, { label: "Explorer", value: record?.explorerUrl || "" }],
+      };
+    }
+    if (/修改要求|改了什么|修改了什么|有哪些修改|变化|调整内容/.test(query)) {
+      const targetMatch = query.match(/[Vv](\d+)/);
+      const requestedVersion = targetMatch ? Number(targetMatch[1]) : Math.max(...versions.map((item) => item.versionNumber));
+      const target = versions.find((item) => item.versionNumber === requestedVersion);
+      if (!target) return { intent: "change_request", answer: `当前没有找到 V${requestedVersion}。`, evidence: [] };
+      if (target.versionNumber === 1) {
+        return {
+          intent: "change_request",
+          answer: "V1 是根据初始客户需求生成的第一版设计，不属于在上一版基础上的修改版本。",
+          evidence: [{ label: "版本", value: "V1" }, { label: "初始需求", value: timeline.project.customerText || "" }],
+        };
+      }
+      return {
+        intent: "change_request",
+        answer: `V${target.versionNumber} 的修改要求是：${target.changeRequest || "未记录修改要求"}`,
+        evidence: [
+          { label: "版本", value: `V${target.versionNumber}` },
+          { label: "修改要求", value: target.changeRequest || "未记录" },
+          { label: "来源版本", value: target.parentVersionId ? `V${target.versionNumber - 1}` : "未记录" },
+        ],
       };
     }
     if (/来源|父版本|V2|v2|从.*改|版本关系/.test(query)) {
       const child = versions.find((item) => item.versionNumber === 2) || versions.at(-1);
       const parent = child?.parentVersionId ? versions.find((item) => item.id === child.parentVersionId) : null;
-      if (!child || !parent) return { intent: "parent_relation", answer: "目前还没有形成 V1 → V2 的父子版本关系。", evidence: [] };
+      if (!child || !parent) return { intent: "parent_relation", answer: "目前还没有形成 V1 → V2 的版本继承关系。", evidence: [] };
       const matched = child.parentContentHash?.toLowerCase() === parent.contentHash?.toLowerCase();
       return {
         intent: "parent_relation",
         answer: matched
-          ? `是的，V${child.versionNumber} 的 parentContentHash 与 V${parent.versionNumber} 的 contentHash 完全一致，因此可以验证它来自上一版本。`
-          : `当前父版本 Hash 不一致，不能证明 V${child.versionNumber} 来源于 V${parent.versionNumber}。`,
-        evidence: [{ label: `V${parent.versionNumber} contentHash`, value: parent.contentHash }, { label: `V${child.versionNumber} parentContentHash`, value: child.parentContentHash }],
+          ? `是的。V${child.versionNumber} 记录的上一版指纹，与 V${parent.versionNumber} 的内容指纹完全一致，因此可以验证 V${child.versionNumber} 由 V${parent.versionNumber} 修改而来。`
+          : `当前记录的上一版指纹不一致，无法验证 V${child.versionNumber} 由 V${parent.versionNumber} 修改而来。`,
+        evidence: [{ label: `V${parent.versionNumber} 内容指纹`, value: parent.contentHash }, { label: `V${child.versionNumber} 上一版指纹`, value: child.parentContentHash }],
       };
     }
     if (/替换|篡改|一致|完整|验证/.test(query)) {
       const latest = versions.at(-1);
-      if (!latest?.metadata || !latest.contentHash) return { intent: "integrity", answer: "最新版本还没有生成冻结 Metadata，暂时无法校验。", evidence: [] };
+      if (!latest?.metadata || !latest.contentHash) return { intent: "integrity", answer: "最新版本还没有生成完整版本信息，暂时无法进行一致性校验。", evidence: [] };
       const recomputed = hashCanonical(latest.metadata);
       const matched = recomputed.toLowerCase() === latest.contentHash.toLowerCase();
       return {
         intent: "integrity",
         answer: matched
-          ? `最新 V${latest.versionNumber} 的 Metadata 重新计算结果与登记 contentHash 一致，当前本地记录没有发现被替换。`
-          : `最新 V${latest.versionNumber} 的 Metadata Hash 与登记记录不一致，可能发生了修改。`,
-        evidence: [{ label: "登记 contentHash", value: latest.contentHash }, { label: "重新计算", value: recomputed }, { label: "结果", value: matched ? "一致" : "不一致" }],
+          ? `当前文件与链上登记一致。最新 V${latest.versionNumber} 的版本信息重新计算后，得到的内容指纹与链上登记值一致。`
+          : `当前文件与链上登记不一致。最新 V${latest.versionNumber} 重新计算得到的内容指纹，与链上登记值不同，说明当前内容已经发生变化或不是当时登记的文件。`,
+        evidence: [{ label: "链上登记的内容指纹", value: latest.contentHash }, { label: "当前文件重新计算结果", value: recomputed }, { label: "结果", value: matched ? "一致" : "不一致" }],
       };
     }
     return {
       intent: "summary",
-      answer: `该设计目前有 ${versions.length} 个版本，${versions.filter((item) => ["chain_confirmed", "finalized"].includes(item.status)).length} 个版本已在 Monad 确认。你可以问：最终确认版是哪版？V2 是否来自 V1？记录有没有被替换？`,
+      answer: `该设计目前有 ${versions.length} 个版本，${versions.filter((item) => ["chain_confirmed", "finalized"].includes(item.status)).length} 个版本已在 Monad 确认。你可以问：哪一版被确认为最终版？V2 是否由 V1 修改而来？当前文件是否与链上登记一致？`,
       evidence: versions.map((item) => ({ label: `V${item.versionNumber}`, value: item.status })),
     };
   }

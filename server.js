@@ -156,7 +156,7 @@ if (isMain) {
   const server = createServer();
   server.listen(port, host, () => {
     const displayHost = host === "0.0.0.0" ? "127.0.0.1" : host;
-    console.log(`JewelChain Studio v1.2.0 Master: http://${displayHost}:${port}`);
+    console.log(`JewelChain Studio v1.3.0 Master: http://${displayHost}:${port}`);
     console.log(`Health: http://${displayHost}:${port}/api/health`);
     console.log(`Worker WS: ws://${displayHost}:${port}/ws/worker`);
     console.log(`Monad contract: ${chainService.contractAddress}`);

@@ -28,3 +28,20 @@ test("hackathon final UI includes performance and accessibility fallbacks", asyn
   assert.match(app, /prepare-registration/);
   assert.match(app, /chain-submission/);
 });
+
+
+test("user-facing copy is consistent and Pages keeps offline browsing architecture", async () => {
+  const html = await read("public/index.html");
+  const pagesHtml = await read("pages-frontend/index.html");
+  const app = await read("public/js/app.js");
+  const pagesConfig = await read("pages-frontend/runtime-config.js");
+  assert.match(html, /生成第一版设计（V1）/);
+  assert.match(html, /哪一版被确认为最终版？/);
+  assert.match(html, /当前文件是否与链上登记一致？/);
+  assert.doesNotMatch(html, /先说人话/);
+  assert.doesNotMatch(html, /恢复推荐示例/);
+  assert.match(app, /等待您确认设计/);
+  assert.match(app, /交易已提交，等待链上确认/);
+  assert.match(pagesConfig, /https:\/\/api\.jewelchain\.xyz/);
+  assert.match(pagesHtml, /Master（调度服务）暂时离线/);
+});

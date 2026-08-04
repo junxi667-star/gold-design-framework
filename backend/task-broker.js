@@ -191,7 +191,7 @@ export class TaskBroker {
         payload: { prompt, filenamePrefix, operation },
         status: "pending",
         progress: 0,
-        currentStep: "等待 Image Worker 领取任务",
+        currentStep: "等待生图端处理任务",
         workerId: null,
         leaseId: null,
         leaseExpiresAt: null,
@@ -207,7 +207,7 @@ export class TaskBroker {
       if (job) {
         job.status = "queued";
         job.progress = Math.max(job.progress || 0, 30);
-        job.currentStep = "任务已进入 Master 队列，等待 Image Worker";
+        job.currentStep = "任务已进入等待队列，生图端上线后会自动处理";
         job.updatedAt = now;
       }
       return created;
@@ -219,12 +219,12 @@ export class TaskBroker {
   async enqueueAndWait(input, { timeoutMs = 60 * 60 * 1000 } = {}) {
     const task = await this.enqueueGeneration(input);
     if (task.status === "completed") return clone(task.result);
-    if (task.status === "failed") throw brokerError(task.lastError?.message || "Worker 任务失败", { code: task.lastError?.code || "WORKER_TASK_FAILED", httpStatus: 502 });
+    if (task.status === "failed") throw brokerError(task.lastError?.message || "生图任务失败", { code: task.lastError?.code || "WORKER_TASK_FAILED", httpStatus: 502 });
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         const entries = this.waiters.get(task.id) || [];
         this.waiters.set(task.id, entries.filter((item) => item.resolve !== resolve));
-        reject(brokerError("等待 Image Worker 超时，任务仍保留在云端队列中", {
+        reject(brokerError("等待生图端超时，任务仍保留在云端队列中", {
           code: "WORKER_WAIT_TIMEOUT",
           httpStatus: 504,
           retryable: true,
@@ -274,7 +274,7 @@ export class TaskBroker {
       task.leaseExpiresAt = new Date(Date.now() + this.leaseSeconds * 1000).toISOString();
       task.attempts += 1;
       task.progress = Math.max(5, Number(task.progress || 0));
-      task.currentStep = `Image Worker ${workerId} 已领取任务`;
+      task.currentStep = `生图端 ${workerId} 已开始处理任务`;
       task.updatedAt = iso();
       return task;
     });
@@ -307,7 +307,7 @@ export class TaskBroker {
       const task = state.workerTasks.find((item) => item.id === taskId);
       task.status = Number(progress || 0) >= 80 ? "uploading" : "running";
       task.progress = Math.max(task.progress || 0, Math.min(95, Number(progress || 0)));
-      task.currentStep = String(message || task.currentStep || "Worker 正在处理");
+      task.currentStep = String(message || task.currentStep || "生图端正在处理");
       task.leaseExpiresAt = new Date(Date.now() + this.leaseSeconds * 1000).toISOString();
       task.updatedAt = iso();
       const job = state.jobs.find((item) => item.id === task.jobId);
@@ -354,7 +354,7 @@ export class TaskBroker {
       const task = state.workerTasks.find((item) => item.id === taskId);
       task.status = "uploading";
       task.progress = Math.max(task.progress || 0, 90);
-      task.currentStep = "图片已上传到 Master，正在保存结果";
+      task.currentStep = "图片已上传到调度服务，正在保存结果";
       task.updatedAt = iso();
       return null;
     });
@@ -383,7 +383,7 @@ export class TaskBroker {
       };
       task.status = "completed";
       task.progress = 100;
-      task.currentStep = "Image Worker 已完成任务";
+      task.currentStep = "生图端已完成任务";
       task.result = result;
       task.leaseExpiresAt = null;
       task.updatedAt = iso();
@@ -408,7 +408,7 @@ export class TaskBroker {
         message: String(errorMessage || "Image Worker 执行失败"),
         retryable: canRetry,
       };
-      task.currentStep = canRetry ? "Worker 执行失败，任务已重新排队" : "Worker 任务失败";
+      task.currentStep = canRetry ? "生图端执行失败，任务已重新进入等待队列" : "生图任务失败";
       task.updatedAt = iso();
       const job = (state.jobs || []).find((item) => item.id === task.jobId);
       if (job) {

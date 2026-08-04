@@ -1,4 +1,4 @@
-# Agent / Storage / Image Worker Handoff — v1.2.0
+# Agent / Storage / Image Worker Handoff — v1.3.0
 
 ## 1. 责任边界
 
@@ -50,7 +50,7 @@ HTTP /api/v1/workers/*
 HTTP PUT 二进制上传
 ```
 
-v1.2.0 不实现 gRPC；接口保留未来迁移空间。
+v1.3.0 不实现 gRPC；接口保留未来迁移空间。
 
 ## 3. Worker API
 

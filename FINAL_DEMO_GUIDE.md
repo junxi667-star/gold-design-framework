@@ -1,4 +1,4 @@
-# JewelChain Studio v1.2.0 黑客松最终演示指南
+# JewelChain Studio v1.3.0 黑客松最终演示指南
 
 ## 最短演示路径
 
