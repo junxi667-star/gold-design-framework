@@ -2,13 +2,23 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-function providerError(message, { code = "ARK_IMAGE_PROVIDER_ERROR", httpStatus = 502, retryable = true, details = null } = {}) {
-  const error = new Error(message);
-  error.code = code;
-  error.httpStatus = httpStatus;
-  error.retryable = retryable;
-  error.details = details;
-  return error;
+import { detectImageType } from "./media/image-type.js";
+import {
+  createAppError,
+  ARK_IMAGE_PROVIDER_ERROR,
+  ARK_NOT_CONFIGURED,
+  ARK_INVALID_RESPONSE,
+  ARK_REQUEST_FAILED,
+  ARK_NO_IMAGE_URL,
+  ARK_IMAGE_DOWNLOAD_FAILED,
+  ARK_EMPTY_IMAGE,
+  ARK_UNSUPPORTED_IMAGE,
+  ARK_TIMEOUT,
+  ARK_CONNECT_FAILED,
+} from "./error-codes.js";
+
+function providerError(message, { code = ARK_IMAGE_PROVIDER_ERROR, httpStatus, retryable, details } = {}) {
+  return createAppError(code, { message, httpStatus, retryable, details });
 }
 
 function normalizeBaseUrl(value) {
@@ -17,12 +27,6 @@ function normalizeBaseUrl(value) {
 
 function safeSegment(value) {
   return String(value || "item").replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 120);
-}
-
-function extensionForMime(mimeType) {
-  if (/jpeg/i.test(mimeType)) return ".jpg";
-  if (/webp/i.test(mimeType)) return ".webp";
-  return ".png";
 }
 
 export class ArkImageProvider {
@@ -58,7 +62,7 @@ export class ArkImageProvider {
   async generate({ prompt, filenamePrefix = "jewelchain" }) {
     if (!this.configured) {
       throw providerError("火山方舟尚未配置，请填写 .env 中的 ARK_API_KEY", {
-        code: "ARK_NOT_CONFIGURED",
+        code: ARK_NOT_CONFIGURED,
         httpStatus: 409,
         retryable: false,
       });
@@ -90,14 +94,14 @@ export class ArkImageProvider {
         payload = raw ? JSON.parse(raw) : {};
       } catch {
         throw providerError("火山方舟返回了无法解析的响应", {
-          code: "ARK_INVALID_RESPONSE",
+          code: ARK_INVALID_RESPONSE,
           details: { status: response.status, responsePreview: raw.slice(0, 300) },
         });
       }
       if (!response.ok) {
         const providerMessage = payload?.error?.message || payload?.message || "未知错误";
         throw providerError(`火山方舟请求失败（HTTP ${response.status}）：${providerMessage}`, {
-          code: "ARK_REQUEST_FAILED",
+          code: ARK_REQUEST_FAILED,
           retryable: response.status === 429 || response.status >= 500,
           details: {
             status: response.status,
@@ -110,22 +114,28 @@ export class ArkImageProvider {
       const imageUrl = candidate?.url || candidate?.image_url || candidate?.imageUrl;
       if (!imageUrl) {
         throw providerError("火山方舟没有返回图片 URL", {
-          code: "ARK_NO_IMAGE_URL",
+          code: ARK_NO_IMAGE_URL,
           details: { responseKeys: Object.keys(payload || {}) },
         });
       }
       const imageResponse = await this.fetchImpl(imageUrl, { signal: controller.signal });
       if (!imageResponse.ok) {
         throw providerError(`下载生成图片失败（HTTP ${imageResponse.status}）`, {
-          code: "ARK_IMAGE_DOWNLOAD_FAILED",
+          code: ARK_IMAGE_DOWNLOAD_FAILED,
           details: { status: imageResponse.status },
         });
       }
       const bytes = Buffer.from(await imageResponse.arrayBuffer());
-      if (!bytes.length) throw providerError("下载到的图片为空", { code: "ARK_EMPTY_IMAGE" });
-      const mimeType = String(imageResponse.headers.get("content-type") || "image/png").split(";", 1)[0];
+      if (!bytes.length) throw providerError("下载到的图片为空", { code: ARK_EMPTY_IMAGE });
+      const imageType = detectImageType(bytes);
+      if (!imageType) {
+        throw providerError("下载结果不是受支持的 PNG、JPEG 或 WebP 图片", {
+          code: ARK_UNSUPPORTED_IMAGE,
+          retryable: false,
+        });
+      }
       await mkdir(this.generatedDir, { recursive: true });
-      const filename = `${safeSegment(filenamePrefix)}_${Date.now()}${extensionForMime(mimeType)}`;
+      const filename = `${safeSegment(filenamePrefix)}_${Date.now()}${imageType.extension}`;
       const filePath = path.join(this.generatedDir, filename);
       await writeFile(filePath, bytes);
       return {
@@ -133,7 +143,7 @@ export class ArkImageProvider {
         filename,
         filePath,
         imageUrl: `/generated/${filename}`,
-        mimeType,
+        mimeType: imageType.mimeType,
         sizeBytes: bytes.length,
         sha256: createHash("sha256").update(bytes).digest("hex"),
         modelProvider: "Volcengine Ark",
@@ -142,11 +152,11 @@ export class ArkImageProvider {
       };
     } catch (error) {
       if (error?.name === "AbortError") {
-        throw providerError("火山方舟请求超时", { code: "ARK_TIMEOUT", retryable: true });
+        throw providerError("火山方舟请求超时", { code: ARK_TIMEOUT, retryable: true });
       }
       if (error?.httpStatus) throw error;
       throw providerError("无法连接火山方舟", {
-        code: "ARK_CONNECT_FAILED",
+        code: ARK_CONNECT_FAILED,
         details: { cause: error?.message || String(error) },
       });
     } finally {

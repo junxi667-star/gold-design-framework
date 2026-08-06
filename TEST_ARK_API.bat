@@ -1,11 +1,4 @@
 @echo off
 setlocal
-cd /d "%~dp0"
-if not exist "%~dp0runtime\node.exe" (
-  echo ERROR: runtime\node.exe is missing.
-  pause
-  exit /b 1
-)
-"%~dp0runtime\node.exe" "%~dp0scripts\test-ark.js"
-echo.
-pause
+call "%~dp0scripts\windows\diagnostics\test-ark-api.bat" %*
+exit /b %errorlevel%

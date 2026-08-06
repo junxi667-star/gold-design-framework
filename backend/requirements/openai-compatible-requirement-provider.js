@@ -1,18 +1,14 @@
 import { text } from "../utils.js";
 import { REQUIREMENT_DATA_VERSION, REQUIREMENT_PARSER_VERSION } from "./requirement-schema.js";
+import { createAppError, REQUIREMENT_PROVIDER_FAILED, REQUIREMENT_PROVIDER_NOT_CONFIGURED, REQUIREMENT_PROVIDER_TIMEOUT } from "../error-codes.js";
 
 function parseJsonContent(content) {
   const normalized = text(content).replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
   return JSON.parse(normalized);
 }
 
-function providerError(message, { code = "REQUIREMENT_PROVIDER_FAILED", retryable = true, details = null } = {}) {
-  const error = new Error(message);
-  error.code = code;
-  error.httpStatus = 502;
-  error.retryable = retryable;
-  error.details = details;
-  return error;
+function providerError(message, { code = REQUIREMENT_PROVIDER_FAILED, retryable, details } = {}) {
+  return createAppError(code, { message, retryable, details });
 }
 
 export class OpenAiCompatibleRequirementProvider {
@@ -51,7 +47,7 @@ export class OpenAiCompatibleRequirementProvider {
   async parse(input, localBaseline) {
     if (!this.configured) {
       throw providerError("外部需求解析 Provider 未完整配置", {
-        code: "REQUIREMENT_PROVIDER_NOT_CONFIGURED",
+        code: REQUIREMENT_PROVIDER_NOT_CONFIGURED,
         retryable: false,
       });
     }
@@ -112,7 +108,7 @@ export class OpenAiCompatibleRequirementProvider {
       };
     } catch (error) {
       if (error?.name === "AbortError") {
-        throw providerError("外部需求解析超时", { code: "REQUIREMENT_PROVIDER_TIMEOUT" });
+        throw providerError("外部需求解析超时", { code: REQUIREMENT_PROVIDER_TIMEOUT });
       }
       if (error?.httpStatus) throw error;
       throw providerError("无法连接外部需求解析服务", { details: { cause: error?.message ?? String(error) } });

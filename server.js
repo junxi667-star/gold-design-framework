@@ -9,7 +9,7 @@ import { loadEnvFile } from "./backend/env-loader.js";
 const rootDir = path.dirname(fileURLToPath(import.meta.url));
 loadEnvFile(rootDir);
 
-const [{ createApiRouter }, { createWorkerApiRouter }, { WorkerWebSocketHub }, { JewelChainStore }, { ArkImageProvider }, { DesignStorageService }, { MonadChainService }, { JewelChainAgent }, { TaskBroker }, { GenerationDispatcher }] = await Promise.all([
+const [{ createApiRouter }, { createWorkerApiRouter }, { WorkerWebSocketHub }, { JewelChainStore }, { ArkImageProvider }, { DesignStorageService }, { MonadChainService }, { JewelChainAgent }, { ChainOrchestrator }, { TaskBroker }, { GenerationDispatcher }] = await Promise.all([
   import("./backend/api-router.js"),
   import("./backend/worker-api-router.js"),
   import("./backend/worker-websocket.js"),
@@ -18,6 +18,7 @@ const [{ createApiRouter }, { createWorkerApiRouter }, { WorkerWebSocketHub }, {
   import("./backend/storage-service.js"),
   import("./backend/chain-service.js"),
   import("./backend/agent-orchestrator.js"),
+  import("./backend/chain-orchestrator.js"),
   import("./backend/task-broker.js"),
   import("./backend/generation-dispatcher.js"),
 ]);
@@ -28,16 +29,19 @@ const metadataDir = path.join(rootDir, "metadata");
 const statePath = process.env.JEWELCHAIN_STATE_PATH || path.join(rootDir, "data", "jewelchain-state.json");
 const workerUploadDir = path.join(rootDir, "data", "worker-uploads");
 
-const store = new JewelChainStore(statePath);
+const store = new JewelChainStore(statePath, { generatedDir });
 const imageProvider = new ArkImageProvider({ generatedDir });
 const storageService = new DesignStorageService({ metadataDir });
 const chainService = new MonadChainService();
 const taskBroker = new TaskBroker({ store, generatedDir, uploadDir: workerUploadDir });
 const generationDispatcher = new GenerationDispatcher({ imageProvider, taskBroker });
-const agent = new JewelChainAgent({ store, generationDispatcher, storageService, chainService, generatedDir });
+const chainOrchestrator = new ChainOrchestrator({ store, storage: storageService, chain: chainService });
+const agent = new JewelChainAgent({ store, generationDispatcher, storageService, chainService, chainOrchestrator, generatedDir });
 let workerHub = null;
 const routeWorkerApi = createWorkerApiRouter(taskBroker, { onTaskChanged: (workerId) => workerHub?.dispatchPending(workerId) });
-const routeApi = createApiRouter(agent, chainService, taskBroker);
+const routeApi = createApiRouter(agent, chainService, taskBroker, {
+  publicBaseUrl: process.env.PUBLIC_BASE_URL,
+});
 
 const contentTypes = new Map([
   [".html", "text/html; charset=utf-8"],
@@ -50,6 +54,8 @@ const contentTypes = new Map([
   [".webp", "image/webp"],
   [".svg", "image/svg+xml"],
 ]);
+const generatedExtensions = new Set([".png", ".jpg", ".jpeg", ".webp"]);
+const metadataExtensions = new Set([".json"]);
 
 const configuredCorsOrigins = String(process.env.CORS_ALLOWED_ORIGINS || "https://demo.jewelchain.xyz")
   .split(",")
@@ -87,12 +93,32 @@ function safeResolve(base, requested) {
   return resolved;
 }
 
-async function serveFile(request, response, filePath, { asset = false } = {}) {
+function sendPlainText(response, statusCode, body) {
+  response.writeHead(statusCode, {
+    "Content-Type": "text/plain; charset=utf-8",
+    "Cache-Control": "no-store",
+    "X-Content-Type-Options": "nosniff",
+  });
+  response.end(body);
+}
+
+function decodeRequestPath(value) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return null;
+  }
+}
+
+async function serveFile(request, response, filePath, { asset = false, allowedExtensions = null } = {}) {
   try {
     await access(filePath);
     const info = await stat(filePath);
     if (!info.isFile()) throw new Error("not file");
     const extension = path.extname(filePath).toLowerCase();
+    if (allowedExtensions && !allowedExtensions.has(extension)) {
+      return sendPlainText(response, 404, "Not found");
+    }
     const headers = {
       "Content-Type": contentTypes.get(extension) || "application/octet-stream",
       "Content-Length": info.size,
@@ -106,8 +132,7 @@ async function serveFile(request, response, filePath, { asset = false } = {}) {
     if (request.method === "HEAD") response.end();
     else createReadStream(filePath).pipe(response);
   } catch {
-    response.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
-    response.end("Not found");
+    sendPlainText(response, 404, "Not found");
   }
 }
 
@@ -128,18 +153,21 @@ export function createServer() {
       return;
     }
     if (url.pathname.startsWith("/generated/")) {
-      const file = safeResolve(generatedDir, decodeURIComponent(url.pathname.slice("/generated/".length)));
-      if (!file) return serveFile(request, response, "", { asset: true });
-      return serveFile(request, response, file, { asset: true });
+      const requestedPath = decodeRequestPath(url.pathname.slice("/generated/".length));
+      const file = requestedPath && safeResolve(generatedDir, requestedPath);
+      if (!file) return sendPlainText(response, 400, "Invalid asset path");
+      return serveFile(request, response, file, { asset: true, allowedExtensions: generatedExtensions });
     }
     if (url.pathname.startsWith("/metadata/")) {
-      const file = safeResolve(metadataDir, decodeURIComponent(url.pathname.slice("/metadata/".length)));
-      if (!file) return serveFile(request, response, "", { asset: true });
-      return serveFile(request, response, file, { asset: true });
+      const requestedPath = decodeRequestPath(url.pathname.slice("/metadata/".length));
+      const file = requestedPath && safeResolve(metadataDir, requestedPath);
+      if (!file) return sendPlainText(response, 400, "Invalid asset path");
+      return serveFile(request, response, file, { asset: true, allowedExtensions: metadataExtensions });
     }
-    const requested = url.pathname === "/" ? "index.html" : decodeURIComponent(url.pathname.replace(/^\/+/, ""));
+    const requested = url.pathname === "/" ? "index.html" : decodeRequestPath(url.pathname.replace(/^\/+/, ""));
+    if (!requested) return sendPlainText(response, 400, "Invalid asset path");
     const file = safeResolve(publicDir, requested);
-    if (!file) return serveFile(request, response, "");
+    if (!file) return sendPlainText(response, 404, "Not found");
     return serveFile(request, response, file);
   });
   workerHub = new WorkerWebSocketHub({ server, taskBroker });
@@ -156,7 +184,7 @@ if (isMain) {
   const server = createServer();
   server.listen(port, host, () => {
     const displayHost = host === "0.0.0.0" ? "127.0.0.1" : host;
-    console.log(`JewelChain Studio v1.3.0 Master: http://${displayHost}:${port}`);
+    console.log(`JewelChain Studio v1.3.1 Master: http://${displayHost}:${port}`);
     console.log(`Health: http://${displayHost}:${port}/api/health`);
     console.log(`Worker WS: ws://${displayHost}:${port}/ws/worker`);
     console.log(`Monad contract: ${chainService.contractAddress}`);

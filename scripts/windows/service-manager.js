@@ -5,7 +5,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-const root = path.dirname(fileURLToPath(import.meta.url));
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const stateFile = path.join(root, ".gold-demo-server.json");
 const host = "127.0.0.1";
 const port = Number(process.env.PORT || process.argv[3] || 4173);

@@ -57,8 +57,14 @@ test("WebSocket registers worker and pushes pending task", async (t) => {
     assert.equal(assigned.task.payload.prompt, "gold ring");
     assert.equal(assigned.task.workerId, "ws-test-worker");
   } finally {
-    ws.close();
+    if (ws.readyState !== WebSocket.CLOSED) {
+      await new Promise((resolve) => {
+        ws.addEventListener("close", resolve, { once: true });
+        ws.close();
+      });
+    }
     await new Promise((resolve) => server.close(resolve));
+    await hub.waitForIdle();
     broker.stop();
     await rm(root, { recursive: true, force: true });
     if (oldToken === undefined) delete process.env.WORKER_TOKEN;

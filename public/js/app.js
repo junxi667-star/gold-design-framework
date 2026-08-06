@@ -82,6 +82,7 @@ const state = {
   toastTimer: null,
   statusBusy: false,
   masterOnline: false,
+  lastModalFocus: null,
 };
 
 elements.accessCode.value = sessionStorage.getItem("jewelchain-access-code") || "";
@@ -137,11 +138,13 @@ async function copyText(value, successMessage = "已复制") {
   showToast(successMessage);
 }
 
-async function api(path, { method = "GET", body } = {}) {
+async function api(path, { method = "GET", body, timeoutMs = 30_000 } = {}) {
   const headers = { Accept: "application/json" };
   if (body !== undefined) headers["Content-Type"] = "application/json";
   const code = elements.accessCode.value.trim();
   if (code) headers["X-Demo-Access-Code"] = code;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
   let response;
   try {
     response = await fetch(resolveApiUrl(path), {
@@ -149,10 +152,14 @@ async function api(path, { method = "GET", body } = {}) {
       headers,
       mode: "cors",
       body: body === undefined ? undefined : JSON.stringify(body),
+      signal: controller.signal,
     });
   } catch (error) {
+    if (error?.name === "AbortError") throw new Error(`Master（调度服务）响应超时（${Math.round(timeoutMs / 1000)}s）。网站仍可浏览，请稍后重试。`);
     const target = API_BASE_URL || "当前域名";
     throw new Error(`Master（调度服务）暂时离线（${target}）。网站仍可浏览，实时生图与 Agent 功能将在服务恢复后可用。`, { cause: error });
+  } finally {
+    clearTimeout(timeout);
   }
   const raw = await response.text();
   let payload;
@@ -235,6 +242,7 @@ function updateWalletUi(address) {
   state.walletAddress = address?.toLowerCase?.() || "";
   const walletLabel = elements.walletButton.querySelector("span");
   if (walletLabel) walletLabel.textContent = state.walletAddress ? short(state.walletAddress, 6, 4) : "连接钱包";
+  elements.walletButton.setAttribute("aria-label", state.walletAddress ? `已连接钱包 ${short(state.walletAddress, 6, 4)}` : "连接钱包");
   elements.walletStatus.textContent = state.walletAddress ? short(state.walletAddress, 6, 4) : "未连接";
   elements.walletButton.classList.toggle("connected", Boolean(state.walletAddress));
 }
@@ -343,8 +351,18 @@ async function ensureMonadNetwork() {
 async function pollJob(jobId) {
   const started = Date.now();
   const foregroundWaitMs = 75 * 1000;
+  let failures = 0;
   while (Date.now() - started < foregroundWaitMs) {
-    const job = await api(`/api/hackathon/jobs/${encodeURIComponent(jobId)}`);
+    let job;
+    try {
+      job = await api(`/api/hackathon/jobs/${encodeURIComponent(jobId)}`);
+      failures = 0;
+    } catch (error) {
+      failures += 1;
+      const delay = Math.min(10_000, 1500 * 2 ** (failures - 1));
+      await new Promise((resolve) => setTimeout(resolve, delay));
+      continue;
+    }
     setProgress(job.progress, job.currentStep);
     if (job.status === "succeeded") {
       setProgress(100, "设计版本已生成并保存");
@@ -436,8 +454,18 @@ async function sendPreparedTransaction(versionId, kind) {
 
 async function pollChain(versionId, kind) {
   const started = Date.now();
+  let failures = 0;
   while (Date.now() - started < 2 * 60 * 1000) {
-    const status = await api(`/api/hackathon/versions/${encodeURIComponent(versionId)}/chain-status?kind=${kind}`);
+    let status;
+    try {
+      status = await api(`/api/hackathon/versions/${encodeURIComponent(versionId)}/chain-status?kind=${kind}`);
+      failures = 0;
+    } catch (error) {
+      failures += 1;
+      const delay = Math.min(10_000, 1600 * 2 ** (failures - 1));
+      await new Promise((resolve) => setTimeout(resolve, delay));
+      continue;
+    }
     if (status.status === "confirmed") {
       showToast(kind === "finalize" ? "最终版本已在 Monad 确认" : "设计版本已登记到 Monad");
       await refreshTimeline();
@@ -613,16 +641,32 @@ function resetProject(scroll = true) {
 
 function openImageModal(src, caption) {
   if (!src) return;
+  state.lastModalFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   elements.modalImage.src = src;
   elements.modalCaption.textContent = caption || "设计预览";
   elements.imageModal.hidden = false;
   document.body.style.overflow = "hidden";
+  requestAnimationFrame(() => elements.modalClose.focus());
 }
 
 function closeImageModal() {
   elements.imageModal.hidden = true;
   elements.modalImage.src = "";
   document.body.style.overflow = "";
+  state.lastModalFocus?.focus?.();
+  state.lastModalFocus = null;
+}
+
+function trapImageModalFocus(event) {
+  if (event.key !== "Tab" || elements.imageModal.hidden) return;
+  const focusable = [...elements.imageModal.querySelectorAll("button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])")];
+  if (focusable.length === 0) return;
+  const currentIndex = focusable.indexOf(document.activeElement);
+  const nextIndex = event.shiftKey
+    ? (currentIndex <= 0 ? focusable.length - 1 : currentIndex - 1)
+    : (currentIndex === focusable.length - 1 ? 0 : currentIndex + 1);
+  event.preventDefault();
+  focusable[nextIndex].focus();
 }
 
 function initRevealAnimations() {
@@ -647,6 +691,22 @@ function updateMobilePrimary() {
   if (!elements.mobilePrimaryButton) return;
   const shouldShow = window.innerWidth <= 640 && window.scrollY > 520 && elements.workspace.hidden;
   elements.mobilePrimaryButton.classList.toggle("is-visible", shouldShow);
+}
+
+function navigateToSection(targetId) {
+  const target = $(targetId);
+  if (!target) return;
+
+  const needsProject = targetId === "#versions" || targetId === "#agent";
+  if (needsProject && elements.workspace.hidden) {
+    history.replaceState(null, "", "#create");
+    $("#create").scrollIntoView({ behavior: "smooth", block: "start" });
+    showToast("请先生成第一版设计；版本档案和 Agent 验证会在此显示", true);
+    return;
+  }
+
+  history.replaceState(null, "", targetId);
+  target.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 function initParticles() {
@@ -785,6 +845,10 @@ elements.copyProjectLinkButton.addEventListener("click", () => copyText(window.l
 elements.scrollCreateButton.addEventListener("click", () => $("#create").scrollIntoView({ behavior: "smooth", block: "start" }));
 elements.flowGuideButton.addEventListener("click", () => $("#flowGuide").scrollIntoView({ behavior: "smooth", block: "center" }));
 elements.mobilePrimaryButton.addEventListener("click", () => $("#create").scrollIntoView({ behavior: "smooth", block: "start" }));
+$$('.topnav a[href^="#"]').forEach((link) => link.addEventListener("click", (event) => {
+  event.preventDefault();
+  navigateToSection(link.getAttribute("href"));
+}));
 elements.compareRange.addEventListener("input", () => updateComparePosition(elements.compareRange.value));
 window.addEventListener("resize", () => { syncCompareImageWidth(); updateMobilePrimary(); }, { passive: true });
 window.addEventListener("scroll", updateMobilePrimary, { passive: true });
@@ -824,7 +888,10 @@ elements.timeline.addEventListener("click", async (event) => {
 
 elements.modalClose.addEventListener("click", closeImageModal);
 elements.imageModal.addEventListener("click", (event) => { if (event.target === elements.imageModal) closeImageModal(); });
-window.addEventListener("keydown", (event) => { if (event.key === "Escape" && !elements.imageModal.hidden) closeImageModal(); });
+window.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !elements.imageModal.hidden) closeImageModal();
+  trapImageModalFocus(event);
+});
 
 if (window.ethereum) {
   window.ethereum.on?.("accountsChanged", (accounts) => updateWalletUi(accounts?.[0] || ""));
