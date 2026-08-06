@@ -1,14 +1,4 @@
-# JewelChain Studio v1.3.1 — 安全加固与工程规范化
-
-> Monad Playground 黑客松最终升级版：更明亮的黄金 UI、明显流动粒子特效、Cloud-ready Master / 本地 Image Worker 架构与可验证版本树。
-
-本版本在 **不改变后端架构、API 域名、Cloudflare Pages 部署方式和 Master / Image Worker 通信协议** 的前提下，完成面向普通用户与黑客松评委的文案统一，并新增安全加固与工程规范化：
-
-- 主流程优先使用中文业务语言；
-- 技术区保留 Master、Image Worker、Metadata、contentHash，并提供首次解释；
-- 统一设计确认、钱包签名、链上确认和最终版确认四类状态；
-- Agent 快捷问题与实际发送问题逐字一致；
-- 保留 `demo.jewelchain.xyz → Cloudflare Pages`，关闭 BAT 后网站仍可浏览并显示调度服务离线。
+# JewelChain Studio v1.3.1 
 
 ## v1.3.1 核心变化
 
@@ -142,7 +132,7 @@ IMAGE_EXECUTION_MODE=worker
 | 全量校验 | `npm run check` |
 | 测试图片服务配置 | `npm run test:ark` |
 
-## 未来迁移到云服务器
+## 部署方式
 
 云服务器：
 
@@ -164,7 +154,7 @@ ARK_API_KEY=保留在本地Worker
 
 然后云端只运行 Master，本地只运行 `START_IMAGE_WORKER_ONLY.bat`。
 
-## 安全边界
+## 安全
 
 - Master 和网页不读取钱包私钥；
 - API Key 不会返回给浏览器；
