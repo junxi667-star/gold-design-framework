@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { createAppError, UNSUPPORTED_PRODUCT_TEMPLATE } from "./error-codes.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const configPath = path.join(here, "templates", "gold-product-templates.v2.json");
@@ -23,11 +24,7 @@ export function normalizeProductType(requirement = {}) {
   for (const [key, template] of Object.entries(CONFIG.products)) {
     if (template.aliases.some((alias) => raw.includes(String(alias).toLowerCase()))) return key;
   }
-  const error = new Error("当前客户版只支持吊坠、项链、戒指和手镯，请在确认页选择其中一种。");
-  error.code = "UNSUPPORTED_PRODUCT_TEMPLATE";
-  error.httpStatus = 400;
-  error.retryable = false;
-  throw error;
+  throw createAppError(UNSUPPORTED_PRODUCT_TEMPLATE, { message: "当前客户版只支持吊坠、项链、戒指和手镯，请在确认页选择其中一种。" });
 }
 
 export function selectProductTemplate(requirement = {}) {

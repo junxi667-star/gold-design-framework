@@ -1,13 +1,10 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-function storageError(message, { code = "STORAGE_ERROR", details = null } = {}) {
-  const error = new Error(message);
-  error.code = code;
-  error.httpStatus = 502;
-  error.retryable = true;
-  error.details = details;
-  return error;
+import { createAppError, STORAGE_ERROR, SUPABASE_REQUEST_FAILED } from "./error-codes.js";
+
+function storageError(message, { code = STORAGE_ERROR, details } = {}) {
+  return createAppError(code, { message, details });
 }
 
 function safePathSegment(value) {
@@ -62,7 +59,7 @@ export class DesignStorageService {
     const raw = await response.text();
     if (!response.ok) {
       throw storageError(`Supabase 请求失败（HTTP ${response.status}）`, {
-        code: "SUPABASE_REQUEST_FAILED",
+        code: SUPABASE_REQUEST_FAILED,
         details: { status: response.status, response: raw.slice(0, 500) },
       });
     }

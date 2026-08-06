@@ -1,7 +1,4 @@
 @echo off
 setlocal
-cd /d "%~dp0"
-title JewelChain Image Worker v1.0.0
-"%~dp0runtime\node.exe" "%~dp0worker\image-worker.js"
-echo.
-pause
+call "%~dp0RUN_IMAGE_WORKER.bat" %*
+exit /b %errorlevel%

@@ -1,5 +1,6 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import { EventEmitter } from "node:events";
+import { WORKER_UNAUTHORIZED, WS_MESSAGE_FAILED, TASK_DISPATCH_FAILED, INVALID_JSON } from "./error-codes.js";
 
 function safeEqual(left, right) {
   const a = Buffer.from(String(left || ""));
@@ -74,7 +75,7 @@ class WebSocketConnection extends EventEmitter {
       }
       if (opcode !== 0x1) continue;
       try { this.emit("message", JSON.parse(payload.toString("utf8"))); }
-      catch { this.sendJson({ type: "server.error", code: "INVALID_JSON", message: "WebSocket 消息必须是 JSON" }); }
+      catch { this.sendJson({ type: "server.error", code: INVALID_JSON, message: "WebSocket 消息必须是 JSON" }); }
     }
   }
 
@@ -98,7 +99,21 @@ export class WorkerWebSocketHub {
     this.taskBroker = taskBroker;
     this.connections = new Map();
     this.dispatching = new Set();
+    this.inFlight = new Set();
     server.on("upgrade", (request, socket) => this.upgrade(request, socket));
+  }
+
+  track(operation) {
+    const tracked = Promise.resolve(operation);
+    this.inFlight.add(tracked);
+    tracked.finally(() => this.inFlight.delete(tracked)).catch(() => {});
+    return tracked;
+  }
+
+  async waitForIdle() {
+    while (this.inFlight.size) {
+      await Promise.allSettled([...this.inFlight]);
+    }
   }
 
   upgrade(request, socket) {
@@ -123,13 +138,13 @@ export class WorkerWebSocketHub {
     }, 10_000);
     authTimeout.unref?.();
 
-    connection.on("message", async (message) => {
+    connection.on("message", (message) => this.track((async () => {
       try {
         if (!authenticated) {
           if (message?.type !== "worker.register") throw new Error("First message must be worker.register");
           const expected = String(process.env.WORKER_TOKEN || "").trim();
           if (!expected || !safeEqual(message.token, expected)) {
-            connection.sendJson({ type: "server.error", code: "WORKER_UNAUTHORIZED", message: "Image Worker 认证失败" });
+            connection.sendJson({ type: "server.error", code: WORKER_UNAUTHORIZED, message: "Image Worker 认证失败" });
             return connection.close(true, 1008, "Unauthorized");
           }
           workerId = String(message.workerId || "").trim();
@@ -160,15 +175,15 @@ export class WorkerWebSocketHub {
           return;
         }
       } catch (error) {
-        connection.sendJson({ type: "server.error", code: error.code || "WS_MESSAGE_FAILED", message: error.message });
+        connection.sendJson({ type: "server.error", code: error.code || WS_MESSAGE_FAILED, message: error.message });
       }
-    });
-    connection.on("close", async () => {
+    })()));
+    connection.on("close", () => {
       clearTimeout(authTimeout);
       const isCurrent = workerId && this.connections.get(workerId) === connection;
       if (isCurrent) {
         this.connections.delete(workerId);
-        await this.taskBroker.markWorkerOffline(workerId).catch(() => {});
+        this.track(this.taskBroker.markWorkerOffline(workerId).catch(() => {}));
       }
     });
     connection.on("error", () => {});
@@ -183,7 +198,7 @@ export class WorkerWebSocketHub {
       const task = await this.taskBroker.claimTask(workerId);
       if (task) connection.sendJson({ type: "task.assigned", task });
     } catch (error) {
-      connection.sendJson({ type: "server.error", code: error.code || "TASK_DISPATCH_FAILED", message: error.message });
+      connection.sendJson({ type: "server.error", code: error.code || TASK_DISPATCH_FAILED, message: error.message });
     } finally {
       this.dispatching.delete(workerId);
     }

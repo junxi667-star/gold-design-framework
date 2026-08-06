@@ -2,15 +2,31 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 
+import { detectImageType, normalizeImageMimeType } from "./media/image-type.js";
 import { clone, iso } from "./utils.js";
+import {
+  createAppError,
+  TASK_BROKER_ERROR,
+  LEASE_EXPIRED,
+  WORKER_NOT_REGISTERED,
+  WORKER_WAIT_TIMEOUT,
+  WORKER_NOT_ONLINE,
+  WORKER_TASK_NOT_FOUND,
+  WORKER_LEASE_MISMATCH,
+  WORKER_TASK_STATE_INVALID,
+  WORKER_LEASE_EXPIRED,
+  WORKER_UPLOAD_EMPTY,
+  WORKER_UPLOAD_UNSUPPORTED_IMAGE,
+  WORKER_UPLOAD_MIME_MISMATCH,
+  WORKER_UPLOAD_HASH_MISMATCH,
+  WORKER_UPLOAD_NOT_FOUND,
+  WORKER_TASK_FAILED,
+  WORKER_EXECUTION_FAILED,
+  WORKER_ID_REQUIRED,
+} from "./error-codes.js";
 
-function brokerError(message, { code = "TASK_BROKER_ERROR", httpStatus = 400, retryable = false, details = null } = {}) {
-  const error = new Error(message);
-  error.code = code;
-  error.httpStatus = httpStatus;
-  error.retryable = retryable;
-  error.details = details;
-  return error;
+function brokerError(message, { code = TASK_BROKER_ERROR, httpStatus, retryable, details } = {}) {
+  return createAppError(code, { message, httpStatus, retryable, details });
 }
 
 function timestamp(value) {
@@ -67,8 +83,8 @@ export class TaskBroker {
           task.leaseId = null;
           task.leaseExpiresAt = null;
           task.lastError = task.attempts >= task.maxAttempts
-            ? { code: "LEASE_EXPIRED", message: "Worker 租约多次过期，任务终止", retryable: false }
-            : { code: "LEASE_EXPIRED", message: "Worker 租约过期，任务已重新排队", retryable: true };
+            ? { code: LEASE_EXPIRED, message: "Worker 租约多次过期，任务终止", retryable: false }
+            : { code: LEASE_EXPIRED, message: "Worker 租约过期，任务已重新排队", retryable: true };
           task.currentStep = task.lastError.message;
           task.updatedAt = iso();
           const job = (state.jobs || []).find((item) => item.id === task.jobId);
@@ -89,7 +105,7 @@ export class TaskBroker {
 
   async registerWorker({ workerId, workerVersion, capabilities = [], maxConcurrency = 1, transport = "http", source = "unknown" } = {}) {
     const id = String(workerId || "").trim();
-    if (!id) throw brokerError("workerId 不能为空", { code: "WORKER_ID_REQUIRED" });
+    if (!id) throw brokerError("workerId 不能为空", { code: WORKER_ID_REQUIRED });
     const now = iso();
     const worker = await this.store.update((state) => {
       state.workers ||= [];
@@ -118,7 +134,7 @@ export class TaskBroker {
     const now = iso();
     return this.store.update((state) => {
       const worker = (state.workers || []).find((item) => item.id === workerId);
-      if (!worker) throw brokerError("Worker 尚未注册", { code: "WORKER_NOT_REGISTERED", httpStatus: 404 });
+      if (!worker) throw brokerError("Worker 尚未注册", { code: WORKER_NOT_REGISTERED, httpStatus: 404 });
       Object.assign(worker, {
         status: "online",
         lastSeenAt: now,
@@ -219,13 +235,13 @@ export class TaskBroker {
   async enqueueAndWait(input, { timeoutMs = 60 * 60 * 1000 } = {}) {
     const task = await this.enqueueGeneration(input);
     if (task.status === "completed") return clone(task.result);
-    if (task.status === "failed") throw brokerError(task.lastError?.message || "生图任务失败", { code: task.lastError?.code || "WORKER_TASK_FAILED", httpStatus: 502 });
+    if (task.status === "failed") throw brokerError(task.lastError?.message || "生图任务失败", { code: task.lastError?.code || WORKER_TASK_FAILED, httpStatus: 502 });
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         const entries = this.waiters.get(task.id) || [];
         this.waiters.set(task.id, entries.filter((item) => item.resolve !== resolve));
         reject(brokerError("等待生图端超时，任务仍保留在云端队列中", {
-          code: "WORKER_WAIT_TIMEOUT",
+          code: WORKER_WAIT_TIMEOUT,
           httpStatus: 504,
           retryable: true,
           details: { taskId: task.id },
@@ -261,7 +277,7 @@ export class TaskBroker {
     const now = Date.now();
     const claimed = await this.store.update((state) => {
       const worker = (state.workers || []).find((item) => item.id === workerId);
-      if (!worker || !workerOnline(worker, now)) throw brokerError("Worker 不在线或未注册", { code: "WORKER_NOT_ONLINE", httpStatus: 409 });
+      if (!worker || !workerOnline(worker, now)) throw brokerError("Worker 不在线或未注册", { code: WORKER_NOT_ONLINE, httpStatus: 409 });
       const activeCount = (state.workerTasks || []).filter((item) => item.workerId === workerId && ["claimed", "running", "uploading"].includes(item.status)).length;
       if (activeCount >= Math.max(1, Number(worker.maxConcurrency || 1))) return null;
       const task = (state.workerTasks || [])
@@ -284,10 +300,10 @@ export class TaskBroker {
   async validateLease(taskId, workerId, leaseId, allowedStatuses = ["claimed", "running", "uploading"]) {
     const state = await this.store.read();
     const task = (state.workerTasks || []).find((item) => item.id === taskId);
-    if (!task) throw brokerError("Worker 任务不存在", { code: "WORKER_TASK_NOT_FOUND", httpStatus: 404 });
-    if (task.workerId !== workerId || task.leaseId !== leaseId) throw brokerError("Worker 租约不匹配", { code: "WORKER_LEASE_MISMATCH", httpStatus: 409 });
-    if (!allowedStatuses.includes(task.status)) throw brokerError("当前任务状态不允许该操作", { code: "WORKER_TASK_STATE_INVALID", httpStatus: 409, details: { status: task.status } });
-    if (timestamp(task.leaseExpiresAt) <= Date.now()) throw brokerError("Worker 租约已经过期", { code: "WORKER_LEASE_EXPIRED", httpStatus: 409, retryable: true });
+    if (!task) throw brokerError("Worker 任务不存在", { code: WORKER_TASK_NOT_FOUND, httpStatus: 404 });
+    if (task.workerId !== workerId || task.leaseId !== leaseId) throw brokerError("Worker 租约不匹配", { code: WORKER_LEASE_MISMATCH, httpStatus: 409 });
+    if (!allowedStatuses.includes(task.status)) throw brokerError("当前任务状态不允许该操作", { code: WORKER_TASK_STATE_INVALID, httpStatus: 409, details: { status: task.status } });
+    if (timestamp(task.leaseExpiresAt) <= Date.now()) throw brokerError("Worker 租约已经过期", { code: WORKER_LEASE_EXPIRED, httpStatus: 409, retryable: true });
     return task;
   }
 
@@ -323,14 +339,30 @@ export class TaskBroker {
 
   async storeUpload(taskId, workerId, leaseId, bytes, { filename, mimeType, sha256 } = {}) {
     await this.validateLease(taskId, workerId, leaseId);
-    if (!Buffer.isBuffer(bytes) || !bytes.length) throw brokerError("上传图片为空", { code: "WORKER_UPLOAD_EMPTY" });
+    if (!Buffer.isBuffer(bytes) || !bytes.length) throw brokerError("上传图片为空", { code: WORKER_UPLOAD_EMPTY });
+    const imageType = detectImageType(bytes);
+    if (!imageType) {
+      throw brokerError("仅支持 PNG、JPEG 或 WebP 图片上传", {
+        code: WORKER_UPLOAD_UNSUPPORTED_IMAGE,
+        httpStatus: 415,
+      });
+    }
+    const declaredMimeType = normalizeImageMimeType(mimeType);
+    if (declaredMimeType && declaredMimeType !== imageType.mimeType) {
+      throw brokerError("上传图片的 Content-Type 与实际文件不一致", {
+        code: WORKER_UPLOAD_MIME_MISMATCH,
+        httpStatus: 415,
+      });
+    }
     const actualSha = createHash("sha256").update(bytes).digest("hex");
     if (sha256 && actualSha.toLowerCase() !== String(sha256).toLowerCase()) {
-      throw brokerError("上传图片 SHA-256 校验失败", { code: "WORKER_UPLOAD_HASH_MISMATCH", httpStatus: 409 });
+      throw brokerError("上传图片 SHA-256 校验失败", { code: WORKER_UPLOAD_HASH_MISMATCH, httpStatus: 409 });
     }
     await mkdir(this.uploadDir, { recursive: true });
     await mkdir(this.generatedDir, { recursive: true });
-    const cleanName = `${taskId}_${safeFileName(filename)}`;
+    const originalName = safeFileName(filename);
+    const stem = originalName.replace(/\.[^.]+$/, "") || "image";
+    const cleanName = `${taskId}_${stem}${imageType.extension}`;
     const temporary = path.join(this.uploadDir, `${cleanName}.part`);
     const target = path.join(this.generatedDir, cleanName);
     await writeFile(temporary, bytes);
@@ -343,7 +375,7 @@ export class TaskBroker {
       filename: cleanName,
       filePath: target,
       imageUrl: `/generated/${encodeURIComponent(cleanName)}`,
-      mimeType: String(mimeType || "image/png").split(";", 1)[0],
+      mimeType: imageType.mimeType,
       sizeBytes: info.size,
       sha256: actualSha,
       createdAt: iso(),
@@ -366,7 +398,7 @@ export class TaskBroker {
     const completed = await this.store.update((state) => {
       const task = state.workerTasks.find((item) => item.id === taskId);
       const upload = (state.workerUploads || []).find((item) => item.id === uploadId && item.taskId === taskId);
-      if (!upload) throw brokerError("找不到本次任务上传的图片", { code: "WORKER_UPLOAD_NOT_FOUND", httpStatus: 409 });
+      if (!upload) throw brokerError("找不到本次任务上传的图片", { code: WORKER_UPLOAD_NOT_FOUND, httpStatus: 409 });
       const result = {
         requestId: requestId || randomUUID(),
         filename: upload.filename,
@@ -404,7 +436,7 @@ export class TaskBroker {
       task.leaseId = null;
       task.leaseExpiresAt = null;
       task.lastError = {
-        code: String(errorCode || "WORKER_EXECUTION_FAILED"),
+        code: String(errorCode || WORKER_EXECUTION_FAILED),
         message: String(errorMessage || "Image Worker 执行失败"),
         retryable: canRetry,
       };

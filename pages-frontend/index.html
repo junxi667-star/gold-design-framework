@@ -10,6 +10,7 @@
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
+  <a class="skip-link" href="#create">跳到创建设计</a>
   <canvas id="particleCanvas" class="particle-canvas" aria-hidden="true"></canvas>
   <div class="flow-ribbons" aria-hidden="true">
     <span class="ribbon ribbon-one"></span>
@@ -42,7 +43,7 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66L20 8M20 4v4h-4"/></svg>
       </button>
       <span id="serviceBadge" class="badge pending"><i></i>检查服务中</span>
-      <button id="walletButton" class="button wallet-button" type="button">
+      <button id="walletButton" class="button wallet-button" type="button" aria-label="连接钱包">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6.5A2.5 2.5 0 0 1 6.5 4H18v4H6.5a2.5 2.5 0 0 0 0 5H20v7H6a2 2 0 0 1-2-2V6.5Z"/><path d="M15 13h5v4h-5a2 2 0 1 1 0-4Z"/></svg>
         <span>连接钱包</span>
       </button>
@@ -62,19 +63,19 @@
           </button>
           <button id="flowGuideButton" class="button glass large" type="button">查看完整流程</button>
         </div>
-        <div class="trust-row" aria-label="产品能力">
-          <span><i class="dot purple"></i>AI 需求理解</span>
-          <span><i class="dot gold"></i>V1 / V2 版本链</span>
-          <span><i class="dot teal"></i>Monad 可验证</span>
-          <span><i class="dot gold"></i>云端调度 / 本地生图</span>
-        </div>
+        <ul class="trust-row" aria-label="产品能力">
+          <li><i class="dot purple"></i>AI 需求理解</li>
+          <li><i class="dot gold"></i>V1 / V2 版本链</li>
+          <li><i class="dot teal"></i>Monad 可验证</li>
+          <li><i class="dot gold"></i>云端调度 / 本地生图</li>
+        </ul>
 
-        <div class="protocol-pills" aria-label="通信与执行架构">
-          <span>Master API</span><span>WebSocket 主通道</span><span>HTTP 兜底</span><span>云端 Master / 本地 Worker</span>
-        </div>
+        <ul class="protocol-pills" aria-label="通信与执行架构">
+          <li>Master API</li><li>WebSocket 主通道</li><li>HTTP 兜底</li><li>云端 Master / 本地 Worker</li>
+        </ul>
       </div>
 
-      <div class="hero-visual" aria-label="JewelChain 设计版本可视化">
+      <div class="hero-visual" role="img" aria-label="设计版本从 V1 到 V2 并在 Monad 上完成核验的可视化">
         <div class="jewel-stage">
           <div class="orbit orbit-a"><span></span></div>
           <div class="orbit orbit-b"><span></span></div>
@@ -123,7 +124,7 @@
           <span class="step-pill">Step 01</span>
         </div>
 
-        <div class="preset-row" aria-label="示例需求">
+        <div class="preset-row" role="group" aria-label="示例需求">
           <button class="preset-chip" type="button" data-preset="设计一款适合年轻女性日常佩戴的新中式黄金戒指，使用简化祥云元素，造型轻盈，不要太复杂。">新中式戒指</button>
           <button class="preset-chip" type="button" data-preset="设计一款现代极简黄金吊坠，以月牙为主体，适合通勤佩戴，线条干净。">月牙吊坠</button>
           <button class="preset-chip" type="button" data-preset="设计一款轻奢黄金手镯，加入抽象山水纹样，整体克制高级，适合作为纪念礼物。">山水手镯</button>
@@ -149,7 +150,7 @@
           <span>生成第一版设计（V1）</span>
         </button>
 
-        <div id="jobPanel" class="job-panel" hidden>
+        <div id="jobPanel" class="job-panel" hidden role="status" aria-live="polite">
           <div class="job-head"><span id="progressText">等待中</span><b id="progressPercent">0%</b></div>
           <div class="progress-track"><div id="progressBar" class="progress-bar"></div></div>
           <div class="pipeline" id="pipelineSteps" aria-label="Agent 执行流程">
@@ -160,7 +161,7 @@
             <span data-pipeline-step="5"><i>5</i>等待您确认设计</span>
           </div>
         </div>
-        <div id="errorBox" class="error-box" hidden></div>
+        <div id="errorBox" class="error-box" hidden role="alert"></div>
       </article>
 
       <aside class="panel system-panel">
@@ -180,11 +181,11 @@
           <div><strong>最小数据上链</strong><p>API Key 仅保存在生图端（Image Worker）的 <code>.env</code>；链上只登记内容指纹、版本关系和公开版本信息地址。</p></div>
         </div>
 
-        <div class="architecture-mini">
+        <div class="architecture-mini" role="group" aria-label="系统连接路径">
           <span>Browser</span><i></i><span>Master 调度服务</span><i></i><span>Image Worker 生图端</span><i></i><span>Monad</span>
         </div>
 
-        <div class="terminology-note" aria-label="术语说明">
+        <section class="terminology-note" aria-label="术语说明">
           <div class="orchestration-title">术语说明</div>
           <dl>
             <div><dt>Master</dt><dd>负责调度流程、保存数据和验证链上结果的服务</dd></div>
@@ -192,7 +193,7 @@
             <div><dt>Metadata</dt><dd>记录设计版本信息的标准文件</dd></div>
             <div><dt>contentHash</dt><dd>用于核验版本内容是否一致的数字指纹</dd></div>
           </dl>
-        </div>
+        </section>
 
         <div class="orchestration-note">
           <div class="orchestration-title">当前推荐部署</div>
@@ -292,7 +293,7 @@
 
   <footer class="site-footer">
     <div><b>JewelChain Studio</b><span>AI Jewelry Design Agent on Monad</span></div>
-    <small>Hackathon Final · v1.3.0</small>
+    <small>Hackathon Final · v1.3.1</small>
   </footer>
 
   <div id="toast" class="toast" hidden></div>

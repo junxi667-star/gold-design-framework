@@ -1,6 +1,6 @@
 {
   "name": "jewelchain-studio",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "private": true,
   "type": "module",
   "description": "Offline-browsable Cloudflare Pages frontend + cloud-ready Master API + remote Image Worker orchestration for JewelChain Studio",
@@ -10,7 +10,10 @@
     "test:ark": "node scripts/test-ark.js",
     "start:master": "node server.js",
     "start:worker": "node worker/image-worker.js",
-    "test:worker": "node --test test/worker-broker.test.js"
+    "test:worker": "node --test test/worker-broker.test.js",
+    "check:frontend": "node scripts/check-frontend-assets.js",
+    "sync:frontend": "node scripts/sync-frontend-assets.js",
+    "check": "npm run check:frontend && npm test"
   },
   "engines": {
     "node": ">=20"

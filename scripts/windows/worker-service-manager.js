@@ -3,9 +3,9 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-import { loadEnvFile } from "./backend/env-loader.js";
+import { loadEnvFile } from "../../backend/env-loader.js";
 
-const root = path.dirname(fileURLToPath(import.meta.url));
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 loadEnvFile(root);
 const stateFile = path.join(root, ".jewelchain-worker.json");
 const logDir = path.join(root, "logs");

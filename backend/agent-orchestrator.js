@@ -4,29 +4,37 @@ import { randomUUID } from "node:crypto";
 import { RequirementParserService } from "./requirements/requirement-parser-service.js";
 import { buildGoldApiImagePrompt } from "./gold-prompt-builder.js";
 import { clone, iso, list, text } from "./utils.js";
-import { buildMetadata, hashCanonical, hashImageFile } from "./design-manifest.js";
-import { keccak256 } from "./keccak.js";
+import { hashCanonical } from "./design-manifest.js";
 import { ZERO_HASH, normalizeAddress } from "./evm-codec.js";
+import { assertVersionTransition } from "./version-states.js";
+import { ChainOrchestrator } from "./chain-orchestrator.js";
+import {
+  createAppError,
+  AGENT_ERROR,
+  INVALID_WALLET_ADDRESS,
+  INVALID_REQUIREMENT,
+  INVALID_CHANGE_REQUEST,
+  INVALID_TX_HASH,
+  PROJECT_NOT_FOUND,
+  PARENT_VERSION_NOT_FOUND,
+  JOB_NOT_FOUND,
+  VERSION_NOT_FOUND,
+  PARENT_NOT_ONCHAIN,
+  DESIGN_FINALIZED,
+  INVALID_VERSION_STATE,
+  VERSION_NOT_READY,
+  REGISTRANT_LOCKED,
+  PARENT_NOT_CONFIRMED,
+  DESIGN_OWNER_WALLET_REQUIRED,
+  WALLET_MISMATCH,
+  VERSION_NOT_REGISTERED,
+  UNAUTHORIZED_FINALIZER,
+  DESIGN_NOT_FINALIZED,
+  GENERATION_FAILED,
+} from "./error-codes.js";
 
-function agentError(message, { code = "AGENT_ERROR", httpStatus = 400, retryable = false, details = null } = {}) {
-  const error = new Error(message);
-  error.code = code;
-  error.httpStatus = httpStatus;
-  error.retryable = retryable;
-  error.details = details;
-  return error;
-}
-
-function createId(prefix) {
-  return `${prefix}-${randomUUID()}`;
-}
-
-function requireWallet(value) {
-  try {
-    return normalizeAddress(value);
-  } catch {
-    throw agentError("钱包地址格式无效，请重新连接 MetaMask", { code: "INVALID_WALLET_ADDRESS", httpStatus: 400 });
-  }
+function agentError(message, { code = AGENT_ERROR, httpStatus, retryable, details } = {}) {
+  return createAppError(code, { message, httpStatus, retryable, details });
 }
 
 function normalizeProductType(value) {
@@ -88,7 +96,7 @@ function publicVersion(version) {
 }
 
 export class JewelChainAgent {
-  constructor({ store, generationDispatcher, imageProvider, storageService, chainService, generatedDir } = {}) {
+  constructor({ store, generationDispatcher, imageProvider, storageService, chainService, chainOrchestrator, generatedDir } = {}) {
     this.store = store;
     this.generation = generationDispatcher || {
       generate: (input) => imageProvider.generate(input),
@@ -102,6 +110,7 @@ export class JewelChainAgent {
     };
     this.storage = storageService;
     this.chain = chainService;
+    this.chainOps = chainOrchestrator || new ChainOrchestrator({ store, storage: storageService, chain: chainService });
     this.generatedDir = generatedDir;
     this.parser = new RequirementParserService();
   }
@@ -109,7 +118,7 @@ export class JewelChainAgent {
   async config() {
     const generation = await this.generation.status();
     return {
-      version: "1.3.0",
+      version: "1.3.1",
       agent: {
         name: "JewelChain Design Agent",
         mode: "deterministic-tool-orchestration",
@@ -125,7 +134,7 @@ export class JewelChainAgent {
 
   async createDesign({ customerText, formFields = {} } = {}) {
     const raw = text(customerText);
-    if (raw.length < 6) throw agentError("请输入更详细的珠宝需求，至少包含一句完整描述", { code: "INVALID_REQUIREMENT" });
+    if (raw.length < 6) throw agentError("请输入更详细的珠宝需求，至少包含一句完整描述", { code: INVALID_REQUIREMENT });
     const parsed = await this.parser.parse({ customerText: raw, formFields, analysisMode: "local" });
     const requirement = normalizeRequirementForGeneration(parsed.structuredRequirement);
     const projectId = randomUUID();
@@ -191,16 +200,16 @@ export class JewelChainAgent {
 
   async reviseDesign(projectId, { parentVersionId, changeRequest } = {}) {
     const change = text(changeRequest);
-    if (change.length < 2) throw agentError("请填写本次修改要求", { code: "INVALID_CHANGE_REQUEST" });
+    if (change.length < 2) throw agentError("请填写本次修改要求", { code: INVALID_CHANGE_REQUEST });
     const state = await this.store.read();
     const project = state.projects.find((item) => item.id === projectId);
-    if (!project) throw agentError("设计项目不存在", { code: "PROJECT_NOT_FOUND", httpStatus: 404 });
+    if (!project) throw agentError("设计项目不存在", { code: PROJECT_NOT_FOUND, httpStatus: 404 });
     const parent = state.versions.find((item) => item.id === parentVersionId && item.projectId === projectId);
-    if (!parent) throw agentError("作为修改来源的上一版本不存在", { code: "PARENT_VERSION_NOT_FOUND", httpStatus: 404 });
+    if (!parent) throw agentError("作为修改来源的上一版本不存在", { code: PARENT_VERSION_NOT_FOUND, httpStatus: 404 });
     if (parent.status !== "chain_confirmed") {
-      throw agentError("为确保版本来源可验证，请先将当前版本登记到 Monad。登记完成后，系统才能把它记录为下一版的来源", { code: "PARENT_NOT_ONCHAIN", httpStatus: 409 });
+      throw agentError("为确保版本来源可验证，请先将当前版本登记到 Monad。登记完成后，系统才能把它记录为下一版的来源", { code: PARENT_NOT_ONCHAIN, httpStatus: 409 });
     }
-    if (project.finalVersionId) throw agentError("该设计已经确定最终版本，不能继续新增版本", { code: "DESIGN_FINALIZED", httpStatus: 409 });
+    if (project.finalVersionId) throw agentError("该设计已经确定最终版本，不能继续新增版本", { code: DESIGN_FINALIZED, httpStatus: 409 });
     const parsedChange = await this.parser.parse({ customerText: change, formFields: {}, analysisMode: "local" });
     const requirement = mergeRevision(parent.structuredRequirement, parsedChange.structuredRequirement, change);
     const versionNumber = Math.max(...state.versions.filter((item) => item.projectId === projectId).map((item) => item.versionNumber), 0) + 1;
@@ -300,6 +309,7 @@ export class JewelChainAgent {
       await this.store.update((state) => {
         const job = state.jobs.find((item) => item.id === jobId);
         const version = state.versions.find((item) => item.id === snapshot.id);
+        assertVersionTransition(version.status, "awaiting_confirmation");
         Object.assign(version, {
           status: "awaiting_confirmation",
           imageUrl: generated.imageUrl,
@@ -325,8 +335,9 @@ export class JewelChainAgent {
       await this.store.update((state) => {
         const job = state.jobs.find((item) => item.id === jobId);
         const version = state.versions.find((item) => item.id === snapshot.id);
-        if (job) Object.assign(job, { status: "failed", progress: Math.max(job.progress || 0, 30), currentStep: "图片生成失败", error: { code: error.code || "GENERATION_FAILED", message: error.message, details: error.details || null }, updatedAt: iso() });
-        if (version) Object.assign(version, { status: "generation_failed", error: { code: error.code || "GENERATION_FAILED", message: error.message }, updatedAt: iso() });
+        if (version) assertVersionTransition(version.status, "generation_failed");
+        if (job) Object.assign(job, { status: "failed", progress: Math.max(job.progress || 0, 30), currentStep: "图片生成失败", error: { code: error.code || GENERATION_FAILED, message: error.message, details: error.details || null }, updatedAt: iso() });
+        if (version) Object.assign(version, { status: "generation_failed", error: { code: error.code || GENERATION_FAILED, message: error.message }, updatedAt: iso() });
         return null;
       });
     }
@@ -347,7 +358,7 @@ export class JewelChainAgent {
   async getJob(jobId) {
     const state = await this.store.read();
     const job = state.jobs.find((item) => item.id === jobId);
-    if (!job) throw agentError("任务不存在", { code: "JOB_NOT_FOUND", httpStatus: 404 });
+    if (!job) throw agentError("任务不存在", { code: JOB_NOT_FOUND, httpStatus: 404 });
     const version = state.versions.find((item) => item.id === job.versionId);
     return { ...job, version: version ? publicVersion(version) : null };
   }
@@ -355,191 +366,31 @@ export class JewelChainAgent {
   async getProject(projectId) {
     const state = await this.store.read();
     const project = state.projects.find((item) => item.id === projectId);
-    if (!project) throw agentError("设计项目不存在", { code: "PROJECT_NOT_FOUND", httpStatus: 404 });
+    if (!project) throw agentError("设计项目不存在", { code: PROJECT_NOT_FOUND, httpStatus: 404 });
     const versions = state.versions.filter((item) => item.projectId === projectId).sort((a, b) => a.versionNumber - b.versionNumber).map(publicVersion);
     return { ...clone(project), versions };
   }
 
-  async prepareRegistration(versionId, { walletAddress, baseUrl }) {
-    const wallet = requireWallet(walletAddress);
-    const state = await this.store.read();
-    const version = state.versions.find((item) => item.id === versionId);
-    if (!version) throw agentError("设计版本不存在", { code: "VERSION_NOT_FOUND", httpStatus: 404 });
-    const project = state.projects.find((item) => item.id === version.projectId);
-    if (!["awaiting_confirmation", "awaiting_wallet_signature", "registration_failed"].includes(version.status)) {
-      if (version.status === "chain_confirmed") return { alreadyConfirmed: true, version: publicVersion(version) };
-      throw agentError("当前版本状态不能准备上链", { code: "INVALID_VERSION_STATE", httpStatus: 409, details: { status: version.status } });
-    }
-    if (!version.imageFilePath || !version.apiPrompt) throw agentError("版本缺少真实图片或提示词", { code: "VERSION_NOT_READY", httpStatus: 409 });
-    if (version.registrant && normalizeAddress(version.registrant) !== wallet) {
-      throw agentError("该版本已经绑定另一个登记钱包，请使用原钱包", { code: "REGISTRANT_LOCKED", httpStatus: 409 });
-    }
-    const parent = version.parentVersionId ? state.versions.find((item) => item.id === version.parentVersionId) : null;
-    if (parent && parent.status !== "chain_confirmed") throw agentError("父版本尚未在 Monad 确认", { code: "PARENT_NOT_CONFIRMED", httpStatus: 409 });
-    if (parent?.registrant && requireWallet(parent.registrant) !== wallet) {
-      throw agentError("V2 必须使用与 V1 相同的钱包登记", { code: "DESIGN_OWNER_WALLET_REQUIRED", httpStatus: 409 });
-    }
-
-    const imageEvidence = await hashImageFile(version.imageFilePath);
-    const preparedImage = await this.storage.prepareImage({ project, version, baseUrl });
-    const manifest = buildMetadata({ project, version, registrant: wallet, imageUri: preparedImage.imageUri, imageEvidence });
-    const designId = keccak256(Buffer.from(project.localDesignId, "utf8"));
-    const versionForStorage = { ...version, ...manifest, status: "awaiting_wallet_signature" };
-    const metadataResult = await this.storage.persistMetadata({
-      project,
-      version: versionForStorage,
-      metadata: manifest.metadata,
-      baseUrl,
-      storageMode: preparedImage.storageMode,
-    });
-    const preparedTx = this.chain.prepareRegister({
-      designId,
-      contentHash: manifest.contentHash,
-      parentContentHash: version.parentContentHash || ZERO_HASH,
-      metadataUri: metadataResult.metadataUri,
-    });
-    await this.store.update((next) => {
-      const current = next.versions.find((item) => item.id === versionId);
-      Object.assign(current, {
-        status: "awaiting_wallet_signature",
-        registrant: wallet,
-        designId,
-        requirementHash: manifest.requirementHash,
-        promptHash: manifest.promptHash,
-        imageHash: manifest.imageHash,
-        contentHash: manifest.contentHash,
-        imageUri: preparedImage.imageUri,
-        metadata: manifest.metadata,
-        metadataUri: metadataResult.metadataUri,
-        storageMode: metadataResult.storageMode,
-        storageWarning: [preparedImage.warning, metadataResult.warning].filter(Boolean).join("；") || null,
-        preparedTransaction: preparedTx,
-        updatedAt: iso(),
-      });
-      return null;
-    });
-    return {
-      versionId,
-      versionNumber: version.versionNumber,
-      designId,
-      contentHash: manifest.contentHash,
-      parentContentHash: version.parentContentHash || ZERO_HASH,
-      metadataUri: metadataResult.metadataUri,
-      imageUri: preparedImage.imageUri,
-      storageWarning: [preparedImage.warning, metadataResult.warning].filter(Boolean).join("；") || null,
-      ...preparedTx,
-    };
+  async prepareRegistration(versionId, input) {
+    return this.chainOps.prepareRegistration(versionId, input);
   }
 
-  async recordSubmission(versionId, { txHash, walletAddress, kind = "register" }) {
-    const wallet = requireWallet(walletAddress);
-    if (!/^0x[0-9a-f]{64}$/i.test(txHash)) throw agentError("txHash 格式无效", { code: "INVALID_TX_HASH" });
-    const state = await this.store.read();
-    const version = state.versions.find((item) => item.id === versionId);
-    if (!version) throw agentError("设计版本不存在", { code: "VERSION_NOT_FOUND", httpStatus: 404 });
-    if (normalizeAddress(version.registrant) !== wallet) throw agentError("回传钱包与登记钱包不一致", { code: "WALLET_MISMATCH", httpStatus: 409 });
-    const existing = state.chainRecords.find((item) => item.versionId === versionId && item.kind === kind && item.txHash.toLowerCase() === txHash.toLowerCase());
-    if (existing) return existing;
-    const record = {
-      id: randomUUID(),
-      versionId,
-      projectId: version.projectId,
-      kind,
-      chainId: this.chain.chainId,
-      contractAddress: this.chain.contractAddress,
-      walletAddress: wallet,
-      txHash,
-      status: "submitted",
-      blockNumber: null,
-      event: null,
-      submittedAt: iso(),
-      confirmedAt: null,
-      errorMessage: null,
-    };
-    await this.store.update((next) => {
-      next.chainRecords.push(record);
-      const current = next.versions.find((item) => item.id === versionId);
-      if (kind === "register") {
-        current.status = "tx_submitted";
-        current.txHash = txHash;
-      } else {
-        current.finalizeTxHash = txHash;
-      }
-      current.updatedAt = iso();
-      return null;
-    });
-    await this.storage.saveChainRecord(record);
-    return record;
+  async recordSubmission(versionId, input) {
+    return this.chainOps.recordSubmission(versionId, input);
   }
 
   async getChainStatus(versionId, kind = "register") {
-    const state = await this.store.read();
-    const version = state.versions.find((item) => item.id === versionId);
-    if (!version) throw agentError("设计版本不存在", { code: "VERSION_NOT_FOUND", httpStatus: 404 });
-    const record = [...state.chainRecords].reverse().find((item) => item.versionId === versionId && item.kind === kind);
-    if (!record) return { status: kind === "register" ? version.status : "not_submitted" };
-    if (["confirmed", "failed"].includes(record.status)) return { ...record, explorerUrl: `${this.chain.explorerUrl}/tx/${record.txHash}` };
-    const expected = kind === "register"
-      ? { designId: version.designId, contentHash: version.contentHash, parentContentHash: version.parentContentHash || ZERO_HASH }
-      : { designId: version.designId, contentHash: version.contentHash };
-    const verification = await this.chain.verifyTransaction({
-      txHash: record.txHash,
-      walletAddress: record.walletAddress,
-      kind,
-      expected,
-    });
-    if (verification.status === "pending") return { ...record, status: "submitted" };
-    await this.store.update((next) => {
-      const currentRecord = next.chainRecords.find((item) => item.id === record.id);
-      const currentVersion = next.versions.find((item) => item.id === versionId);
-      const project = next.projects.find((item) => item.id === version.projectId);
-      Object.assign(currentRecord, {
-        status: verification.status,
-        blockNumber: verification.blockNumber || null,
-        event: verification.event || null,
-        confirmedAt: verification.status === "confirmed" ? iso() : null,
-        errorMessage: verification.errorMessage || null,
-      });
-      if (verification.status === "confirmed") {
-        if (kind === "register") {
-          currentVersion.status = "chain_confirmed";
-          currentVersion.onchainVersionNumber = verification.event.versionNumber;
-          currentVersion.registeredBy = verification.event.registeredBy;
-        } else {
-          currentVersion.status = "finalized";
-          project.finalVersionId = currentVersion.id;
-        }
-      } else if (kind === "register") {
-        currentVersion.status = "registration_failed";
-      }
-      currentVersion.updatedAt = iso();
-      project.updatedAt = iso();
-      return null;
-    });
-    const refreshedState = await this.store.read();
-    const updated = refreshedState.chainRecords.find((item) => item.id === record.id);
-    const updatedVersion = refreshedState.versions.find((item) => item.id === versionId);
-    const updatedProject = refreshedState.projects.find((item) => item.id === version.projectId);
-    await this.storage.saveChainRecord(updated);
-    await this.storage.updateVersionAndProject({ version: updatedVersion, project: updatedProject });
-    return { ...updated, explorerUrl: `${this.chain.explorerUrl}/tx/${record.txHash}` };
+    return this.chainOps.getChainStatus(versionId, kind);
   }
 
-  async prepareFinalize(versionId, { walletAddress }) {
-    const wallet = requireWallet(walletAddress);
-    const state = await this.store.read();
-    const version = state.versions.find((item) => item.id === versionId);
-    if (!version) throw agentError("设计版本不存在", { code: "VERSION_NOT_FOUND", httpStatus: 404 });
-    if (version.status === "finalized") return { alreadyFinalized: true, version: publicVersion(version) };
-    if (version.status !== "chain_confirmed") throw agentError("只有已登记到 Monad 的版本才能确认为最终版", { code: "VERSION_NOT_REGISTERED", httpStatus: 409 });
-    if (normalizeAddress(version.registrant) !== wallet) throw agentError("只有原登记钱包可以确认最终版", { code: "UNAUTHORIZED_FINALIZER", httpStatus: 403 });
-    return { versionId, ...this.chain.prepareFinalize({ designId: version.designId, contentHash: version.contentHash }) };
+  async prepareFinalize(versionId, input) {
+    return this.chainOps.prepareFinalize(versionId, input);
   }
 
   async timeline(projectId) {
     const state = await this.store.read();
     const project = state.projects.find((item) => item.id === projectId);
-    if (!project) throw agentError("设计项目不存在", { code: "PROJECT_NOT_FOUND", httpStatus: 404 });
+    if (!project) throw agentError("设计项目不存在", { code: PROJECT_NOT_FOUND, httpStatus: 404 });
     const versions = state.versions.filter((item) => item.projectId === projectId).sort((a, b) => a.versionNumber - b.versionNumber).map((version) => {
       const records = state.chainRecords.filter((item) => item.versionId === version.id);
       return {
@@ -554,7 +405,7 @@ export class JewelChainAgent {
   async certificate(projectId) {
     const timeline = await this.timeline(projectId);
     const finalVersion = timeline.versions.find((item) => item.id === timeline.project.finalVersionId || item.status === "finalized");
-    if (!finalVersion) throw agentError("该设计还没有完成链上最终确认", { code: "DESIGN_NOT_FINALIZED", httpStatus: 409 });
+    if (!finalVersion) throw agentError("该设计还没有完成链上最终确认", { code: DESIGN_NOT_FINALIZED, httpStatus: 409 });
     const registration = finalVersion.chainRecords.find((item) => item.kind === "register" && item.status === "confirmed");
     const finalization = finalVersion.chainRecords.find((item) => item.kind === "finalize" && item.status === "confirmed");
     return {

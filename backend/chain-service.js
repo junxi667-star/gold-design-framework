@@ -6,14 +6,23 @@ import {
   normalizeBytes32,
   parseRegistryReceipt,
 } from "./evm-codec.js";
+import {
+  createAppError,
+  CHAIN_ERROR,
+  INVALID_TX_HASH,
+  WALLET_MISMATCH,
+  RPC_UNAVAILABLE,
+  RPC_REQUEST_FAILED,
+  RPC_TIMEOUT,
+  RPC_CONNECT_FAILED,
+  CHAIN_STATUS_FAILED,
+  TRANSACTION_REVERTED,
+  WRONG_CONTRACT,
+  EXPECTED_EVENT_NOT_FOUND,
+} from "./error-codes.js";
 
-function chainError(message, { code = "CHAIN_ERROR", httpStatus = 502, retryable = true, details = null } = {}) {
-  const error = new Error(message);
-  error.code = code;
-  error.httpStatus = httpStatus;
-  error.retryable = retryable;
-  error.details = details;
-  return error;
+function chainError(message, { code = CHAIN_ERROR, httpStatus, retryable, details } = {}) {
+  return createAppError(code, { message, httpStatus, retryable, details });
 }
 
 function hexQuantity(value) {
@@ -43,7 +52,7 @@ export class MonadChainService {
   }
 
   async rpc(method, params = []) {
-    if (!this.fetchImpl) throw chainError("当前环境不支持网络请求", { code: "RPC_UNAVAILABLE" });
+    if (!this.fetchImpl) throw chainError("当前环境不支持网络请求", { code: RPC_UNAVAILABLE });
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 15000);
     try {
@@ -56,15 +65,15 @@ export class MonadChainService {
       const payload = await response.json();
       if (!response.ok || payload.error) {
         throw chainError(payload?.error?.message || `Monad RPC 请求失败（HTTP ${response.status}）`, {
-          code: "RPC_REQUEST_FAILED",
+          code: RPC_REQUEST_FAILED,
           details: { method, status: response.status, rpcCode: payload?.error?.code || null },
         });
       }
       return payload.result;
     } catch (error) {
-      if (error?.name === "AbortError") throw chainError("Monad RPC 请求超时", { code: "RPC_TIMEOUT" });
+      if (error?.name === "AbortError") throw chainError("Monad RPC 请求超时", { code: RPC_TIMEOUT });
       if (error?.httpStatus) throw error;
-      throw chainError("无法连接 Monad RPC", { code: "RPC_CONNECT_FAILED", details: { cause: error?.message || String(error) } });
+      throw chainError("无法连接 Monad RPC", { code: RPC_CONNECT_FAILED, details: { cause: error?.message || String(error) } });
     } finally {
       clearTimeout(timeout);
     }
@@ -93,7 +102,7 @@ export class MonadChainService {
         expectedChainId: this.chainId,
         contractAddress: this.contractAddress,
         contractCodePresent: false,
-        error: { code: error.code || "CHAIN_STATUS_FAILED", message: error.message },
+        error: { code: error.code || CHAIN_STATUS_FAILED, message: error.message },
       };
     }
   }
@@ -141,7 +150,7 @@ export class MonadChainService {
 
   async verifyTransaction({ txHash, walletAddress, kind, expected }) {
     if (!/^0x[0-9a-f]{64}$/i.test(txHash)) {
-      throw chainError("txHash 格式无效", { code: "INVALID_TX_HASH", httpStatus: 400, retryable: false });
+      throw chainError("txHash 格式无效", { code: INVALID_TX_HASH, httpStatus: 400, retryable: false });
     }
     const [transaction, receipt] = await Promise.all([
       this.rpc("eth_getTransactionByHash", [txHash]),
@@ -149,13 +158,13 @@ export class MonadChainService {
     ]);
     if (!transaction || !receipt) return { status: "pending", txHash };
     if (String(receipt.status).toLowerCase() !== "0x1") {
-      return { status: "failed", txHash, errorCode: "TRANSACTION_REVERTED", errorMessage: "Monad 交易执行失败" };
+      return { status: "failed", txHash, errorCode: TRANSACTION_REVERTED, errorMessage: "Monad 交易执行失败" };
     }
     if (normalizeAddress(transaction.to) !== this.contractAddress) {
-      return { status: "failed", txHash, errorCode: "WRONG_CONTRACT", errorMessage: "交易目标不是当前 Design Registry 合约" };
+      return { status: "failed", txHash, errorCode: WRONG_CONTRACT, errorMessage: "交易目标不是当前 Design Registry 合约" };
     }
     if (normalizeAddress(transaction.from) !== normalizeAddress(walletAddress)) {
-      return { status: "failed", txHash, errorCode: "WALLET_MISMATCH", errorMessage: "交易发送钱包与提交记录不一致" };
+      return { status: "failed", txHash, errorCode: WALLET_MISMATCH, errorMessage: "交易发送钱包与提交记录不一致" };
     }
     const event = parseRegistryReceipt(receipt, {
       contractAddress: this.contractAddress,
@@ -165,7 +174,7 @@ export class MonadChainService {
       kind,
     });
     if (!event) {
-      return { status: "failed", txHash, errorCode: "EXPECTED_EVENT_NOT_FOUND", errorMessage: "交易成功，但没有找到匹配的版本登记事件" };
+      return { status: "failed", txHash, errorCode: EXPECTED_EVENT_NOT_FOUND, errorMessage: "交易成功，但没有找到匹配的版本登记事件" };
     }
     return {
       status: "confirmed",

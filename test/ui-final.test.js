@@ -45,3 +45,13 @@ test("user-facing copy is consistent and Pages keeps offline browsing architectu
   assert.match(pagesConfig, /https:\/\/api\.jewelchain\.xyz/);
   assert.match(pagesHtml, /Master（调度服务）暂时离线/);
 });
+
+test("Pages deployment assets stay in sync with the Master-served frontend", async () => {
+  for (const asset of ["index.html", "styles.css", "js/app.js"]) {
+    assert.equal(
+      await read(`public/${asset}`),
+      await read(`pages-frontend/${asset}`),
+      `${asset} must be copied together for Cloudflare Pages`,
+    );
+  }
+});

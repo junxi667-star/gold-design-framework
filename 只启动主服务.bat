@@ -1,5 +1,4 @@
 @echo off
 setlocal
-cd /d "%~dp0"
-"%~dp0runtime\node.exe" "%~dp0service-manager.js" start 4173
-pause
+call "%~dp0START_MASTER_ONLY.bat" %*
+exit /b %errorlevel%

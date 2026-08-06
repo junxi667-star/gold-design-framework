@@ -6,16 +6,18 @@ import { fileURLToPath } from "node:url";
 
 import { loadEnvFile } from "../backend/env-loader.js";
 import { ArkImageProvider } from "../backend/ark-image-provider.js";
+import { UNSUPPORTED_TASK_TYPE, WORKER_EXECUTION_FAILED, WORKER_BUSY } from "../backend/error-codes.js";
 
 const rootDir = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 loadEnvFile(rootDir);
 
 const workerId = String(process.env.WORKER_ID || `${os.hostname().toLowerCase()}-image-01`).trim();
-const workerVersion = "1.3.0";
+const workerVersion = "1.3.1";
 const token = String(process.env.WORKER_TOKEN || "").trim();
 const masterBaseUrl = String(process.env.MASTER_BASE_URL || "http://127.0.0.1:4173").replace(/\/+$/, "");
 const pollIntervalMs = Math.max(1500, Number(process.env.WORKER_POLL_INTERVAL_MS || 5000));
-const maxConcurrency = Math.max(1, Number(process.env.WORKER_MAX_CONCURRENCY || 1));
+// 当前 Worker 为单任务执行模型（busy 布尔），并发预留：如需多任务需改为任务计数
+const maxConcurrency = 1;
 const generatedDir = path.resolve(rootDir, process.env.IMAGE_WORKER_GENERATED_DIR || "worker-generated");
 const provider = new ArkImageProvider({ generatedDir });
 
@@ -33,6 +35,7 @@ let websocket = null;
 let busy = false;
 let stopped = false;
 let wsConnected = false;
+let registeredHttp = false;
 let heartbeatTimer = null;
 let pollTimer = null;
 
@@ -127,13 +130,29 @@ async function uploadImage(task, generated) {
 }
 
 async function executeTask(task) {
-  if (busy || !task) return;
+  if (!task) return;
+  if (busy) {
+    log(`任务 ${task.id} 到达时生图端正忙，回传等待队列`);
+    try {
+      await api(`/api/v1/workers/tasks/${encodeURIComponent(task.id)}/fail`, {
+        body: {
+          leaseId: task.leaseId,
+          errorCode: WORKER_BUSY,
+          errorMessage: "生图端正在执行其他任务，任务已重新排队",
+          retryable: true,
+        },
+      });
+    } catch (reportError) {
+      log(`回传繁忙状态失败：${reportError.message}（等待租约过期后自动重排队）`);
+    }
+    return;
+  }
   busy = true;
   log(`领取任务 ${task.id}：${task.type}`);
   const renewTimer = setInterval(() => renew(task).catch((error) => log(`续租失败：${error.message}`)), 35_000);
   renewTimer.unref?.();
   try {
-    if (task.type !== "generate-image") throw Object.assign(new Error(`不支持任务类型：${task.type}`), { code: "UNSUPPORTED_TASK_TYPE" });
+    if (task.type !== "generate-image") throw Object.assign(new Error(`不支持任务类型：${task.type}`), { code: UNSUPPORTED_TASK_TYPE });
     await progress(task, 20, "生图端正在调用图片模型");
     const generated = await provider.generate({
       prompt: task.payload?.prompt,
@@ -159,7 +178,7 @@ async function executeTask(task) {
       await api(`/api/v1/workers/tasks/${encodeURIComponent(task.id)}/fail`, {
         body: {
           leaseId: task.leaseId,
-          errorCode: error.code || "WORKER_EXECUTION_FAILED",
+          errorCode: error.code || WORKER_EXECUTION_FAILED,
           errorMessage: error.message,
           retryable: Boolean(error.retryable),
         },
@@ -177,10 +196,16 @@ async function executeTask(task) {
 async function pollOnce() {
   if (busy || wsConnected) return;
   try {
-    await registerHttp();
+    if (!registeredHttp) {
+      await registerHttp();
+      registeredHttp = true;
+    }
     const result = await api("/api/v1/workers/tasks/claim", { body: {} });
     if (result.task) await executeTask(result.task);
   } catch (error) {
+    if (["WORKER_UNAUTHORIZED", "WORKER_NOT_REGISTERED", "WORKER_TOKEN_NOT_CONFIGURED"].includes(String(error?.code || ""))) {
+      registeredHttp = false;
+    }
     log(`HTTP 兜底轮询失败：${error.message}`);
   }
 }
@@ -236,6 +261,7 @@ async function main() {
   log(`图片模型：${status.configured ? `${status.model} 已配置` : "未配置"}`);
   if (!status.configured) throw new Error("火山方舟 API 未配置，检查 .env 中的 ARK_API_KEY");
   await registerHttp();
+  registeredHttp = true;
   connectWebSocket();
   heartbeatTimer = setInterval(() => heartbeat().catch((error) => log(`心跳失败：${error.message}`)), 30_000);
   heartbeatTimer.unref?.();

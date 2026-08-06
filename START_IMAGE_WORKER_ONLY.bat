@@ -1,5 +1,4 @@
 @echo off
 setlocal
-cd /d "%~dp0"
-"%~dp0runtime\node.exe" "%~dp0worker-service-manager.js" start
-pause
+call "%~dp0scripts\windows\lifecycle\start-image-worker-only.bat" %*
+exit /b %errorlevel%

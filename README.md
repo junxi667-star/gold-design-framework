@@ -1,9 +1,8 @@
-# JewelChain Studio v1.3.0 — 文案清晰化最终版
+# JewelChain Studio v1.3.1 — 安全加固与工程规范化
 
 > Monad Playground 黑客松最终升级版：更明亮的黄金 UI、明显流动粒子特效、Cloud-ready Master / 本地 Image Worker 架构与可验证版本树。
 
-
-本版本在 **不改变后端架构、API 域名、Cloudflare Pages 部署方式和 Master / Image Worker 通信协议** 的前提下，完成面向普通用户与黑客松评委的文案统一：
+本版本在 **不改变后端架构、API 域名、Cloudflare Pages 部署方式和 Master / Image Worker 通信协议** 的前提下，完成面向普通用户与黑客松评委的文案统一，并新增安全加固与工程规范化：
 
 - 主流程优先使用中文业务语言；
 - 技术区保留 Master、Image Worker、Metadata、contentHash，并提供首次解释；
@@ -11,41 +10,29 @@
 - Agent 快捷问题与实际发送问题逐字一致；
 - 保留 `demo.jewelchain.xyz → Cloudflare Pages`，关闭 BAT 后网站仍可浏览并显示调度服务离线。
 
-## v1.3.0 核心变化
+## v1.3.1 核心变化
 
-- `pages-frontend/` 可独立部署到 Cloudflare Pages，电脑关闭后网站仍能显示。
-- 前端通过 `runtime-config.js` 调用 `https://api.jewelchain.xyz`。
-- Master 离线时显示明确的离线状态，不再出现整站 502。
-- Master 在线而 Worker 离线时，生图任务保存在队列中；Worker 上线后自动领取。
-- Master API 新增受限 CORS，允许 `https://demo.jewelchain.xyz`。
-- 继续采用 WebSocket 主通道 + HTTP 领取/续租/上传/完成兜底。
-- gRPC 未在当前黑客松版本中实现，保留为后续生产化升级。
+### 安全加固
 
-## 最终版亮点
+- 图片上传和下载改为 **魔数字节检测**（PNG/JPEG/WebP），不再信任 Content-Type 头。
+- 文件服务增加 **扩展名白名单**：`/generated/` 只返回图片，`/metadata/` 只返回 JSON。
+- `PUBLIC_BASE_URL` 强制配置：非本地部署必须设置，防止元数据 URI 被伪造 Host 污染。
+- `decodeURIComponent` 失败时返回 400 而非 500。
+- WebSocket 连接增加 `track()`/`waitForIdle()` 优雅关闭机制。
 
-- 高级珠宝视觉：曜石黑、香槟金、AI 紫蓝、Monad 青色。
-- 升级动态：更明显的流动粒子、柔和连线、金色流光带、珠宝轨道、状态呼吸与滚动入场动画。
-- 完整闭环：需求 → V1 → Monad 登记 → V2 → 父版本验证 → 最终确认。
-- 新增版本拖动对比、图片大图、Hash 复制、Agent 链上问答和最终凭证下载。
-- 保留原有 `.env`、Seedream API、固定域名、Master/Worker 和 Monad 配置。
+### 工程规范化
 
-详细演示顺序见 [`FINAL_DEMO_GUIDE.md`](./FINAL_DEMO_GUIDE.md)。
+- **错误码集中注册**：`backend/error-codes.js` 统一定义 71 个错误码常量、元数据和 `createAppError` 工厂。业务模块不再使用内联字符串。参见 [`docs/error-codes.md`](./docs/error-codes.md)。
+- **HTTP 工具去重**：`sendJson`/`readJson`/`readBody` 从两个路由抽取到 `backend/http-utils.js`。
+- **请求工具抽取**：`decodeRouteParam`/`resolvePublicBaseUrl` 集中到 `backend/http/request-utils.js`。
+- **前端同步脚本**：`npm run sync:frontend` 同步 `public/` 到 `pages-frontend/`，`npm run check:frontend` 校验一致性。
+- **AGENTS.md**：新增代理协作约定，定义编码风格、验证流程和目录职责。
 
-JewelChain Studio 是一个面向 Monad Playground 黑客松的 AI 珠宝设计协作 Agent。
+### 前端无障碍
 
-核心闭环：
-
-```text
-客户输入珠宝需求
-→ Master Agent 建立 V1 生图任务
-→ Image Worker 领取任务并调用 Seedream
-→ 图片上传回 Master，形成 V1
-→ 用户确认并通过 MetaMask 登记到 Monad
-→ 用户提出修改，生成 V2
-→ V2 记录 V1 的 parentContentHash
-→ 用户登记 V2 并设为最终确认版
-→ 时间线与 Agent 问答提供链上证据
-```
+- 新增 skip-link（键盘跳转）、ARIA 属性、语义化列表。
+- 模态框焦点管理与 Tab 键陷阱。
+- CSS 语义 Design Token 和响应式优化。
 
 ## v1.3.0 架构
 
@@ -67,8 +54,8 @@ Master API
        ▼
 Image Worker
   ├─ 调用现有 Seedream API
-  ├─ 下载并校验图片
-  └─ 二进制上传 Master
+  ├─ 下载并校验图片（魔数字节检测）
+  └─ 二进制上传 Master（MIME + SHA-256 校验）
 ```
 
 本地使用时，Master 和 Worker 都运行在同一台电脑；上云后，只需要把 Master 放到云服务器，电脑继续运行 Worker。
@@ -80,7 +67,7 @@ Image Worker
 - WebSocket 实时推送任务；
 - HTTP 注册、心跳、领取、续租、进度、上传、完成和失败兜底；
 - 任务租约、超时回收、重试、幂等与重复领取保护；
-- 图片二进制上传和 SHA-256 校验；
+- 图片二进制上传、魔数字节检测和 SHA-256 校验；
 - V1/V2 父子版本关系；
 - 标准 Metadata 和 Keccak-256 Hash；
 - 本地存储和可选 Supabase；
@@ -88,6 +75,8 @@ Image Worker
 - Design Registry 登记与最终版本确认；
 - txHash、Receipt 和事件验证；
 - 版本时间线、Explorer、最终凭证、Agent 问答；
+- 错误码集中注册与文档化；
+- 前端无障碍（skip-link、ARIA、焦点管理）；
 - Windows 一键启动和后台 Worker 日志。
 
 ## 本地一键使用
@@ -95,7 +84,7 @@ Image Worker
 1. 完整解压 ZIP。
 2. 双击 `START_JEWELCHAIN.bat`。
 3. 浏览器自动打开 `http://127.0.0.1:4173/`。
-4. 页面“生图执行端”显示 `Image Worker 在线（1）` 后开始生成。
+4. 页面"生图执行端"显示 `Image Worker 在线（1）` 后开始生成。
 5. 停止时双击 `STOP_JEWELCHAIN.bat`。
 
 现有 `.env` 中的图片 API 配置已保留。不要把包含 `.env` 的压缩包上传公开 GitHub。
@@ -142,6 +131,17 @@ IMAGE_EXECUTION_MODE=worker
 
 黑客松建议使用 `worker`；答辩保底可以使用 `hybrid`。
 
+## 常用命令
+
+| 操作 | 命令 |
+| --- | --- |
+| 启动 Master | `npm run start:master` |
+| 启动 Worker | `npm run start:worker` |
+| 同步 Pages 前端 | `npm run sync:frontend` |
+| 校验前端一致性 | `npm run check:frontend` |
+| 全量校验 | `npm run check` |
+| 测试图片服务配置 | `npm run test:ark` |
+
 ## 未来迁移到云服务器
 
 云服务器：
@@ -151,6 +151,7 @@ HOST=0.0.0.0
 PORT=4173
 IMAGE_EXECUTION_MODE=worker
 WORKER_TOKEN=与本地Worker一致的随机长Token
+PUBLIC_BASE_URL=https://api.jewelchain.xyz
 ```
 
 本地电脑：
@@ -168,8 +169,21 @@ ARK_API_KEY=保留在本地Worker
 - Master 和网页不读取钱包私钥；
 - API Key 不会返回给浏览器；
 - 图片不通过 WebSocket/Base64 传输；
-- Worker 上传时校验 SHA-256；
+- Worker 上传时校验魔数字节、MIME 一致性和 SHA-256；
+- 文件服务限制扩展名白名单；
+- 非本地部署强制设置 `PUBLIC_BASE_URL`；
 - 上链只保存 Hash、版本关系和 Metadata URI；
 - 链上记录不等于法律版权确权。
+
+## 文档
+
+| 文档 | 用途 |
+| --- | --- |
+| [`docs/error-codes.md`](./docs/error-codes.md) | 错误码参考（71 个） |
+| [`docs/PROJECT_STRUCTURE.md`](./docs/PROJECT_STRUCTURE.md) | 目录结构与维护入口 |
+| [`docs/architecture/`](./docs/architecture/) | Master / Worker / 前端协作协议 |
+| [`docs/deployment/`](./docs/deployment/) | Cloudflare Pages 部署说明 |
+| [`docs/guides/`](./docs/guides/) | 用户指南与演示指南 |
+| [`AGENTS.md`](./AGENTS.md) | 代理协作约定 |
 
 完整操作见：`小白使用说明.md`。

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { createAppError, VALIDATION_FAILED } from "./error-codes.js";
 
 export function createId(prefix) {
   return `${prefix}-${randomUUID()}`;
@@ -26,10 +27,7 @@ export function clone(value) {
 export function requireText(value, label) {
   const normalized = text(value);
   if (!normalized) {
-    const error = new Error(`${label}不能为空`);
-    error.code = "VALIDATION_FAILED";
-    error.httpStatus = 400;
-    throw error;
+    throw createAppError(VALIDATION_FAILED, { message: `${label}不能为空` });
   }
   return normalized;
 }
