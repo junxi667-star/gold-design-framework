@@ -1,4 +1,4 @@
-import { createAppError, INVALID_PUBLIC_BASE_URL, INVALID_ROUTE_PARAMETER, PUBLIC_BASE_URL_REQUIRED } from "../error-codes.js";
+import { createAppError, INVALID_PUBLIC_BASE_URL, INVALID_ROUTE_PARAMETER } from "../error-codes.js";
 
 function normalizeConfiguredPublicBaseUrl(value) {
   const raw = String(value || "").trim();
@@ -15,10 +15,6 @@ function normalizeConfiguredPublicBaseUrl(value) {
   return parsed.origin;
 }
 
-function isLoopbackOrigin(origin) {
-  return ["localhost", "127.0.0.1", "::1"].includes(origin.hostname);
-}
-
 export function decodeRouteParam(value) {
   try {
     return decodeURIComponent(String(value));
@@ -32,12 +28,5 @@ export function resolvePublicBaseUrl(request, { publicBaseUrl } = {}) {
   if (configured) return configured;
 
   const host = String(request.headers.host || "").trim();
-  try {
-    const localOrigin = new URL(`http://${host}`);
-    if (isLoopbackOrigin(localOrigin)) return localOrigin.origin;
-  } catch {
-    // Treat malformed Host headers exactly like other unconfigured public origins.
-  }
-
-  throw createAppError(PUBLIC_BASE_URL_REQUIRED, { message: "非本地部署必须设置 PUBLIC_BASE_URL，避免元数据 URI 受请求 Host 影响" });
+  return new URL(`http://${host}`).origin;
 }

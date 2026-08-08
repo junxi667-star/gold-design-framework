@@ -6,7 +6,6 @@ export const PAYLOAD_TOO_LARGE = "PAYLOAD_TOO_LARGE";
 export const INVALID_JSON = "INVALID_JSON";
 export const INVALID_PUBLIC_BASE_URL = "INVALID_PUBLIC_BASE_URL";
 export const INVALID_ROUTE_PARAMETER = "INVALID_ROUTE_PARAMETER";
-export const PUBLIC_BASE_URL_REQUIRED = "PUBLIC_BASE_URL_REQUIRED";
 
 // ─── 浏览器 API 路由 ───────────────────────────────────────
 export const API_ROUTE_NOT_FOUND = "API_ROUTE_NOT_FOUND";
@@ -127,7 +126,6 @@ const REGISTRY = {
   [INVALID_JSON]:                   { httpStatus: 400, retryable: false, message: "请求 JSON 格式无效" },
   [INVALID_PUBLIC_BASE_URL]:        { httpStatus: 500, retryable: false, message: "PUBLIC_BASE_URL 配置无效" },
   [INVALID_ROUTE_PARAMETER]:        { httpStatus: 400, retryable: false, message: "请求路径参数编码无效" },
-  [PUBLIC_BASE_URL_REQUIRED]:       { httpStatus: 503, retryable: false, message: "非本地部署必须设置 PUBLIC_BASE_URL" },
 
   // 浏览器 API 路由
   [API_ROUTE_NOT_FOUND]:            { httpStatus: 404, retryable: false, message: "接口不存在" },

@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { decodeRouteParam, resolvePublicBaseUrl } from "../backend/http/request-utils.js";
 
-test("public metadata URL uses explicit deployment config instead of forwarded request headers", () => {
+test("public metadata URL prefers explicit deployment config and otherwise uses the request Host", () => {
   const request = {
     headers: {
       host: "untrusted.example",
@@ -15,10 +15,7 @@ test("public metadata URL uses explicit deployment config instead of forwarded r
     resolvePublicBaseUrl(request, { publicBaseUrl: "https://api.jewelchain.xyz/path-that-is-not-part-of-the-origin" }),
     "https://api.jewelchain.xyz",
   );
-  assert.throws(
-    () => resolvePublicBaseUrl(request),
-    { code: "PUBLIC_BASE_URL_REQUIRED", httpStatus: 503 },
-  );
+  assert.equal(resolvePublicBaseUrl(request), "http://untrusted.example");
 });
 
 test("local development keeps loopback metadata URLs and malformed route values return a client error", () => {

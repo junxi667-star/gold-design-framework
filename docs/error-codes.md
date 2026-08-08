@@ -10,7 +10,6 @@
 | `INVALID_JSON` | 400 | false | 请求 JSON 格式无效 | http-utils.js |
 | `INVALID_PUBLIC_BASE_URL` | 500 | false | PUBLIC_BASE_URL 配置无效 | http/request-utils.js |
 | `INVALID_ROUTE_PARAMETER` | 400 | false | 请求路径参数编码无效 | http/request-utils.js |
-| `PUBLIC_BASE_URL_REQUIRED` | 503 | false | 非本地部署必须设置 PUBLIC_BASE_URL | http/request-utils.js |
 
 ## 浏览器 API 路由
 

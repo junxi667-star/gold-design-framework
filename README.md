@@ -6,7 +6,7 @@
 
 - 图片上传和下载改为 **魔数字节检测**（PNG/JPEG/WebP），不再信任 Content-Type 头。
 - 文件服务增加 **扩展名白名单**：`/generated/` 只返回图片，`/metadata/` 只返回 JSON。
-- `PUBLIC_BASE_URL` 强制配置：非本地部署必须设置，防止元数据 URI 被伪造 Host 污染。
+- `PUBLIC_BASE_URL` 可选配置：未设置时使用请求 `Host` 生成图片和 Metadata URI。
 - `decodeURIComponent` 失败时返回 400 而非 500。
 - WebSocket 连接增加 `track()`/`waitForIdle()` 优雅关闭机制。
 
@@ -161,7 +161,7 @@ ARK_API_KEY=保留在本地Worker
 - 图片不通过 WebSocket/Base64 传输；
 - Worker 上传时校验魔数字节、MIME 一致性和 SHA-256；
 - 文件服务限制扩展名白名单；
-- 非本地部署强制设置 `PUBLIC_BASE_URL`；
+- 可通过 `PUBLIC_BASE_URL` 固定图片和 Metadata URI 的公开根地址；
 - 上链只保存 Hash、版本关系和 Metadata URI；
 - 链上记录不等于法律版权确权。
 

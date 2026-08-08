@@ -46,7 +46,7 @@ CORS_ALLOWED_ORIGINS=https://demo.jewelchain.xyz
 WORKER_TOKEN=云端与本地 Worker 相同的随机长 Token
 ```
 
-`PUBLIC_BASE_URL` 必须是浏览器和链上 Metadata 都能访问到的 Master API 根地址。生产环境不会再从请求的 `Host` 或 `X-Forwarded-*` 头推断该地址，避免外部请求写入错误的 Metadata URI。
+`PUBLIC_BASE_URL` 可选；设置后必须是浏览器和链上 Metadata 都能访问到的 Master API 根地址。未设置时，生产环境从请求的 `Host` 推断该地址（不会使用 `X-Forwarded-*` 头）。
 
 现阶段本地 Master 可继续由 Cloudflare Tunnel 暴露为 `api.jewelchain.xyz -> http://127.0.0.1:4173`。
 

@@ -219,4 +219,4 @@ MASTER_BASE_URL=https://api.jewelchain.xyz
 
 API Key 建议只留在本地 Worker，不放在云服务器，也不放前端。
 
-`PUBLIC_BASE_URL` 必须是浏览器能访问的 Master 根地址。它用于生成图片和 Metadata 的公开地址；本地 `127.0.0.1` 使用时可留空。
+`PUBLIC_BASE_URL` 可选，设置后必须是浏览器能访问的 Master 根地址。它用于固定图片和 Metadata 的公开地址；未设置时使用请求 `Host` 生成地址。

@@ -175,13 +175,13 @@ Master = https://api.jewelchain.xyz
 Worker = 用户电脑主动连接云端
 ```
 
-云端 Master 的 `.env` 还必须设置：
+云端 Master 可选设置：
 
 ```env
 PUBLIC_BASE_URL=https://api.jewelchain.xyz
 ```
 
-该值用于生成图片与 Metadata 的公开 URI；非本地环境缺失时，Master 会拒绝生成可能受请求 Host 影响的 URI。
+该值用于固定图片与 Metadata 的公开 URI；未设置时，Master 使用请求 `Host` 生成 URI。
 
 只需要修改 Worker：
 
