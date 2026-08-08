@@ -24,14 +24,14 @@ pages-frontend
 apiBaseUrl: "https://api.jewelchain.xyz"
 ```
 
-共享页面文件以 `public/` 为源。修改 `favicon.svg`、`index.html`、`styles.css` 或 `js/app.js` 后，先在项目根目录运行：
+前端源码位于 `frontend/`。Pages 部署前在项目根目录构建：
 
 ```bash
-npm run sync:frontend
-npm run check:frontend
+pnpm run build:pages
+pnpm run check:frontend
 ```
 
-不要把本地同源配置的 `public/runtime-config.js` 覆盖到 `pages-frontend/runtime-config.js`。
+不要手工覆盖 `pages-frontend/runtime-config.js`；Vite 会在 Pages 构建时写入独立 API 地址。`_headers` 同时覆盖 `/assets/*` 的长期缓存和运行时配置的 `no-store`。
 
 ## Master 配置
 
@@ -53,7 +53,7 @@ WORKER_TOKEN=云端与本地 Worker 相同的随机长 Token
 部署前至少运行：
 
 ```bash
-npm run check
+pnpm run check
 ```
 
 ## 本地 Image Worker

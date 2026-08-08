@@ -1,0 +1,325 @@
+/* Design Token System for JewelChain Studio */
+/* Based on W3C DTCG Format */
+
+:root {
+  /* ========== Colors ========== */
+  
+  /* Base Colors */
+  --color-black: #000000;
+  --color-white: #ffffff;
+  
+  /* Brand Colors - Gold */
+  --color-gold-50: #fef9e7;
+  --color-gold-100: #fdf0c4;
+  --color-gold-200: #fbe39e;
+  --color-gold-300: #f8d57a;
+  --color-gold-400: #f3d58a;
+  --color-gold-500: #d6b36a;
+  --color-gold-600: #b89332;
+  --color-gold-700: #8a6428;
+  --color-gold-800: #6b4e1f;
+  --color-gold-900: #4d3815;
+  
+  /* Brand Colors - Purple */
+  --color-purple-50: #f3efff;
+  --color-purple-100: #e5dcff;
+  --color-purple-200: #d4c8ff;
+  --color-purple-300: #b49cff;
+  --color-purple-400: #9b7fff;
+  --color-purple-500: #8b66ff;
+  --color-purple-600: #7047e0;
+  --color-purple-700: #5a33b8;
+  --color-purple-800: #442590;
+  --color-purple-900: #2e1868;
+  
+  /* Brand Colors - Teal */
+  --color-teal-50: #e6faf5;
+  --color-teal-100: #b8f6ec;
+  --color-teal-200: #8af2e3;
+  --color-teal-300: #5eedda;
+  --color-teal-400: #55d6c2;
+  --color-teal-500: #3dbda9;
+  --color-teal-600: #2d9e8e;
+  --color-teal-700: #1f7f73;
+  --color-teal-800: #136058;
+  --color-teal-900: #08413d;
+  
+  /* Neutral Colors */
+  --color-gray-50: #f8f7fa;
+  --color-gray-100: #f0eef3;
+  --color-gray-200: #e2dfe8;
+  --color-gray-300: #c8c3d0;
+  --color-gray-400: #aea6bc;
+  --color-gray-500: #8e879b;
+  --color-gray-600: #6b6378;
+  --color-gray-700: #4d4558;
+  --color-gray-800: #2e2839;
+  --color-gray-900: #1a1725;
+  --color-gray-950: #12111b;
+  
+  /* Semantic Colors - Light Mode */
+  --color-bg-page-light: #f8f7fa;
+  --color-bg-surface-light: #ffffff;
+  --color-bg-surface-strong-light: #f0eef3;
+  --color-bg-interactive-light: rgba(0, 0, 0, .04);
+  --color-border-subtle-light: rgba(0, 0, 0, .10);
+  --color-border-emphasis-light: var(--color-gold-600);
+  --color-text-primary-light: #1a1725;
+  --color-text-secondary-light: #6b6378;
+  --color-text-tertiary-light: #6b6378;
+  --color-interactive-primary-light: var(--color-gold-700);
+  
+  /* Semantic Colors - Dark Mode */
+  --color-bg-page-dark: var(--color-gray-950);
+  --color-bg-surface-dark: rgba(28, 24, 38, .70);
+  --color-bg-surface-strong-dark: rgba(31, 27, 43, .92);
+  --color-bg-interactive-dark: rgba(255, 255, 255, .055);
+  --color-border-subtle-dark: rgba(255, 255, 255, .12);
+  --color-border-emphasis-dark: rgba(214, 179, 106, .34);
+  --color-text-primary-dark: #f5f2eb;
+  --color-text-secondary-dark: #b7b2c2;
+  --color-text-tertiary-dark: #aea6bc;
+  --color-interactive-primary-dark: var(--color-gold-400);
+  
+  /* Status Colors */
+  --color-success: #4dd49e;
+  --color-success-light: #a9f0d1;
+  --color-success-dark: #3db888;
+  --color-error: #ff7171;
+  --color-error-light: #ffb2b2;
+  --color-error-dark: #e05555;
+  --color-warning: #f5d99a;
+  --color-warning-light: #fbe39e;
+  --color-warning-dark: #d6b36a;
+  
+  /* ========== Typography ========== */
+  
+  /* Font Families */
+  --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Consolas, monospace;
+  
+  /* Font Sizes - Using 4px grid */
+  --font-size-2xs: 10px;
+  --font-size-xs: 12px;
+  --font-size-sm: 14px;
+  --font-size-base: 16px;
+  --font-size-lg: 18px;
+  --font-size-xl: 20px;
+  --font-size-2xl: 24px;
+  --font-size-3xl: 28px;
+  --font-size-4xl: 36px;
+  --font-size-5xl: 48px;
+  --font-size-6xl: 64px;
+  --font-size-7xl: 76px;
+  
+  /* Font Weights */
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+  --font-weight-extrabold: 800;
+  --font-weight-black: 900;
+  
+  /* Line Heights */
+  --line-height-tight: 1.05;
+  --line-height-snug: 1.25;
+  --line-height-normal: 1.5;
+  --line-height-relaxed: 1.75;
+  --line-height-loose: 2;
+  
+  /* Letter Spacing */
+  --letter-spacing-tighter: -.055em;
+  --letter-spacing-tight: -.025em;
+  --letter-spacing-normal: 0;
+  --letter-spacing-wide: .02em;
+  --letter-spacing-wider: .08em;
+  --letter-spacing-widest: .16em;
+  
+  /* ========== Spacing ========== */
+  
+  /* 4px Grid System */
+  --space-0: 0;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 28px;
+  --space-8: 32px;
+  --space-9: 36px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-14: 56px;
+  --space-16: 64px;
+  --space-20: 80px;
+  --space-24: 96px;
+  
+  /* Semantic Spacing */
+  --space-page: clamp(32px, 5vw, 72px);
+  --space-section: clamp(20px, 3vw, 32px);
+  --space-component: 16px;
+  --space-element: 8px;
+  --space-tight: 4px;
+  
+  /* ========== Border Radius ========== */
+  
+  /* 4px Grid */
+  --radius-none: 0;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-2xl: 20px;
+  --radius-3xl: 24px;
+  --radius-4xl: 28px;
+  --radius-full: 9999px;
+  
+  /* Semantic Radius */
+  --radius-button: var(--radius-lg);
+  --radius-card: var(--radius-3xl);
+  --radius-input: var(--radius-md);
+  --radius-badge: var(--radius-full);
+  --radius-dialog: var(--radius-4xl);
+  
+  /* ========== Shadows ========== */
+  
+  /* Elevation Shadows */
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, .05);
+  --shadow-sm: 0 2px 4px rgba(0, 0, 0, .06);
+  --shadow-md: 0 4px 8px rgba(0, 0, 0, .08);
+  --shadow-lg: 0 8px 16px rgba(0, 0, 0, .10);
+  --shadow-xl: 0 16px 32px rgba(0, 0, 0, .12);
+  --shadow-2xl: 0 28px 80px rgba(8, 6, 18, .24);
+  
+  /* Semantic Shadows */
+  --shadow-card: var(--shadow-lg);
+  --shadow-dialog: var(--shadow-2xl);
+  --shadow-dropdown: var(--shadow-xl);
+  --shadow-button: var(--shadow-sm);
+  
+  /* ========== Borders ========== */
+  
+  --border-width-thin: 1px;
+  --border-width-medium: 2px;
+  --border-width-thick: 3px;
+  
+  /* ========== Transitions ========== */
+  
+  --transition-fast: 150ms ease;
+  --transition-normal: 200ms ease;
+  --transition-slow: 300ms ease;
+  --transition-slower: 500ms ease;
+  
+  /* ========== Z-Index ========== */
+  
+  --z-base: 0;
+  --z-dropdown: 10;
+  --z-sticky: 20;
+  --z-overlay: 30;
+  --z-modal: 40;
+  --z-popover: 50;
+  --z-toast: 60;
+  --z-tooltip: 70;
+  
+  /* ========== Breakpoints ========== */
+  
+  --breakpoint-xs: 0;
+  --breakpoint-sm: 576px;
+  --breakpoint-md: 768px;
+  --breakpoint-lg: 992px;
+  --breakpoint-xl: 1200px;
+  --breakpoint-2xl: 1600px;
+  
+  /* ========== Content Widths ========== */
+  
+  --content-width-xs: 480px;
+  --content-width-sm: 576px;
+  --content-width-md: 768px;
+  --content-width-lg: 992px;
+  --content-width-xl: 1200px;
+  --content-width-2xl: 1240px;
+  
+  /* ========== Focus Ring ========== */
+  
+  --focus-ring: 0 0 0 3px rgba(85, 214, 194, .30), 0 0 0 5px rgba(18, 17, 27, .92);
+  --focus-ring-light: 0 0 0 3px rgba(139, 102, 255, .30), 0 0 0 5px rgba(255, 255, 255, .92);
+}
+
+/* ========== Dark Mode (Default) ========== */
+
+:root,
+[data-theme="dark"] {
+  color-scheme: dark;
+  --color-bg-page: var(--color-bg-page-dark);
+  --color-bg-surface: var(--color-bg-surface-dark);
+  --color-bg-surface-strong: var(--color-bg-surface-strong-dark);
+  --color-bg-interactive: var(--color-bg-interactive-dark);
+  --color-border-subtle: var(--color-border-subtle-dark);
+  --color-border-emphasis: var(--color-border-emphasis-dark);
+  --color-text-primary: var(--color-text-primary-dark);
+  --color-text-secondary: var(--color-text-secondary-dark);
+  --color-text-tertiary: var(--color-text-tertiary-dark);
+  --color-interactive-primary: var(--color-interactive-primary-dark);
+  --color-gold: var(--color-gold-500);
+  --color-gold-bright: var(--color-gold-400);
+  --color-gold-deep: var(--color-gold-700);
+  --color-purple: var(--color-purple-500);
+  --color-purple-bright: var(--color-purple-300);
+  --color-teal: var(--color-teal-400);
+  --color-teal-bright: var(--color-teal-200);
+  --color-green: var(--color-success);
+  --color-red: var(--color-error);
+}
+
+/* ========== Light Mode ========== */
+
+[data-theme="light"] {
+  color-scheme: light;
+  --color-bg-page: var(--color-bg-page-light);
+  --color-bg-surface: var(--color-bg-surface-light);
+  --color-bg-surface-strong: var(--color-bg-surface-strong-light);
+  --color-bg-interactive: var(--color-bg-interactive-light);
+  --color-border-subtle: var(--color-border-subtle-light);
+  --color-border-emphasis: var(--color-border-emphasis-light);
+  --color-text-primary: var(--color-text-primary-light);
+  --color-text-secondary: var(--color-text-secondary-light);
+  --color-text-tertiary: var(--color-text-tertiary-light);
+  --color-interactive-primary: var(--color-interactive-primary-light);
+  --color-gold: var(--color-gold-600);
+  --color-gold-bright: var(--color-gold-700);
+  --color-gold-deep: var(--color-gold-800);
+  --color-purple: var(--color-purple-600);
+  --color-purple-bright: var(--color-purple-700);
+  --color-teal: var(--color-teal-600);
+  --color-teal-bright: var(--color-teal-700);
+  --color-green: var(--color-success-dark);
+  --color-red: var(--color-error-dark);
+}
+
+/* ========== System Preference ========== */
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    color-scheme: light;
+    --color-bg-page: var(--color-bg-page-light);
+    --color-bg-surface: var(--color-bg-surface-light);
+    --color-bg-surface-strong: var(--color-bg-surface-strong-light);
+    --color-bg-interactive: var(--color-bg-interactive-light);
+    --color-border-subtle: var(--color-border-subtle-light);
+    --color-border-emphasis: var(--color-border-emphasis-light);
+    --color-text-primary: var(--color-text-primary-light);
+    --color-text-secondary: var(--color-text-secondary-light);
+    --color-text-tertiary: var(--color-text-tertiary-light);
+    --color-interactive-primary: var(--color-interactive-primary-light);
+    --color-gold: var(--color-gold-600);
+    --color-gold-bright: var(--color-gold-700);
+    --color-gold-deep: var(--color-gold-800);
+    --color-purple: var(--color-purple-600);
+    --color-purple-bright: var(--color-purple-700);
+    --color-teal: var(--color-teal-600);
+    --color-teal-bright: var(--color-teal-700);
+    --color-green: var(--color-success-dark);
+    --color-red: var(--color-error-dark);
+  }
+}

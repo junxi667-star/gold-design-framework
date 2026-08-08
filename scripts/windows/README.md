@@ -8,7 +8,7 @@
 | `configuration/` | 本地 `.env` 初始化与编辑。 |
 | `diagnostics/` | 诊断、图片服务配置和 Worker 连通性检查。 |
 | `deployment/` | Cloudflared 下载与公网演示隧道。 |
-| `service-manager.js` | Master 后台服务的状态文件、启动与停止。 |
-| `worker-service-manager.js` | Image Worker 后台服务、日志与状态文件管理。 |
+| `service-manager.bat` | Go Master 后台服务的启动与停止（调用 `jewelchain-server.exe`）。 |
+| `worker-service-manager.bat` | Go Image Worker 后台服务的启动、停止与状态检查（调用 `jewelchain-worker.exe`）。 |
 
 新增 Windows 操作脚本时，只在本目录添加实现；如需面向最终用户提供双击入口，再在项目根目录增加一个简短的兼容转发器。

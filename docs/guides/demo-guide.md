@@ -2,7 +2,7 @@
 
 ## 最短演示路径
 
-1. 双击 `启动JewelChain.bat`。
+1. 双击 `START_JEWELCHAIN.bat`。
 2. 打开 `https://demo.jewelchain.xyz`。
 3. 确认页面显示 Master、Image Worker、存储和 Monad 状态。
 4. 使用推荐示例生成 V1。

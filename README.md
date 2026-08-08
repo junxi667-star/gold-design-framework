@@ -1,22 +1,19 @@
-# JewelChain Studio v1.3.1 
+# JewelChain Studio v1.3.1
 
 ## v1.3.1 核心变化
+
+### Go 后端迁移
+
+- 后端已从 Node.js 完整迁移到 Go，所有 API、Worker、WebSocket 功能由 Go 二进制提供。
+- `go build ./cmd/jewelchain-server` 构建 Master 服务。
+- `go build ./cmd/jewelchain-worker` 构建 Image Worker。
+- 前端仍使用 React + Vite 构建（`pnpm run build`）。
 
 ### 安全加固
 
 - 图片上传和下载改为 **魔数字节检测**（PNG/JPEG/WebP），不再信任 Content-Type 头。
 - 文件服务增加 **扩展名白名单**：`/generated/` 只返回图片，`/metadata/` 只返回 JSON。
 - `PUBLIC_BASE_URL` 可选配置：未设置时使用请求 `Host` 生成图片和 Metadata URI。
-- `decodeURIComponent` 失败时返回 400 而非 500。
-- WebSocket 连接增加 `track()`/`waitForIdle()` 优雅关闭机制。
-
-### 工程规范化
-
-- **错误码集中注册**：`backend/error-codes.js` 统一定义 71 个错误码常量、元数据和 `createAppError` 工厂。业务模块不再使用内联字符串。参见 [`docs/error-codes.md`](./docs/error-codes.md)。
-- **HTTP 工具去重**：`sendJson`/`readJson`/`readBody` 从两个路由抽取到 `backend/http-utils.js`。
-- **请求工具抽取**：`decodeRouteParam`/`resolvePublicBaseUrl` 集中到 `backend/http/request-utils.js`。
-- **前端同步脚本**：`npm run sync:frontend` 同步 `public/` 到 `pages-frontend/`，`npm run check:frontend` 校验一致性。
-- **AGENTS.md**：新增代理协作约定，定义编码风格、验证流程和目录职责。
 
 ### 前端无障碍
 
@@ -24,13 +21,13 @@
 - 模态框焦点管理与 Tab 键陷阱。
 - CSS 语义 Design Token 和响应式优化。
 
-## v1.3.0 架构
+## 架构
 
 ```text
 浏览器
   │ HTTPS / HTTP
   ▼
-Master API
+Go Master API (jewelchain-server)
   ├─ Agent 编排
   ├─ 任务队列
   ├─ V1/V2 状态机
@@ -42,32 +39,13 @@ Master API
        │ WebSocket 主通道
        │ HTTP 轮询与回传兜底
        ▼
-Image Worker
+Go Image Worker (jewelchain-worker)
   ├─ 调用现有 Seedream API
   ├─ 下载并校验图片（魔数字节检测）
   └─ 二进制上传 Master（MIME + SHA-256 校验）
 ```
 
 本地使用时，Master 和 Worker 都运行在同一台电脑；上云后，只需要把 Master 放到云服务器，电脑继续运行 Worker。
-
-## 已完成
-
-- Seedream 真实生图；
-- Master / Image Worker 分离；
-- WebSocket 实时推送任务；
-- HTTP 注册、心跳、领取、续租、进度、上传、完成和失败兜底；
-- 任务租约、超时回收、重试、幂等与重复领取保护；
-- 图片二进制上传、魔数字节检测和 SHA-256 校验；
-- V1/V2 父子版本关系；
-- 标准 Metadata 和 Keccak-256 Hash；
-- 本地存储和可选 Supabase；
-- MetaMask + Monad Testnet；
-- Design Registry 登记与最终版本确认；
-- txHash、Receipt 和事件验证；
-- 版本时间线、Explorer、最终凭证、Agent 问答；
-- 错误码集中注册与文档化；
-- 前端无障碍（skip-link、ARIA、焦点管理）；
-- Windows 一键启动和后台 Worker 日志。
 
 ## 本地一键使用
 
@@ -105,6 +83,21 @@ Worker 日志：
 logs/image-worker.log
 ```
 
+## 常用命令
+
+| 操作 | 命令 |
+| --- | --- |
+| 构建 Master | `go build -o jewelchain-server ./cmd/jewelchain-server` |
+| 构建 Worker | `go build -o jewelchain-worker ./cmd/jewelchain-worker` |
+| 运行 Master | `./jewelchain-server` |
+| 运行 Worker | `./jewelchain-worker` |
+| 前端本地开发 | `pnpm run dev` |
+| 构建前端 | `pnpm run build` |
+| 构建 Pages 前端 | `pnpm run build:pages` |
+| Go 测试 | `go test ./...` |
+
+默认情况下，`pnpm run dev` 会将 `/api`、`/generated` 与 `/metadata` 代理到 Go Master 的 `http://127.0.0.1:4173`。
+
 ## 生图执行模式
 
 `.env`：
@@ -118,19 +111,6 @@ IMAGE_EXECUTION_MODE=worker
 - `worker`：所有生图进入 Master 队列，由 Worker 执行；
 - `direct`：Master 直接调用图片 API；
 - `hybrid`：优先 Worker，无在线 Worker 时由 Master 直接调用 API。
-
-黑客松建议使用 `worker`；答辩保底可以使用 `hybrid`。
-
-## 常用命令
-
-| 操作 | 命令 |
-| --- | --- |
-| 启动 Master | `npm run start:master` |
-| 启动 Worker | `npm run start:worker` |
-| 同步 Pages 前端 | `npm run sync:frontend` |
-| 校验前端一致性 | `npm run check:frontend` |
-| 全量校验 | `npm run check` |
-| 测试图片服务配置 | `npm run test:ark` |
 
 ## 部署方式
 
@@ -169,11 +149,9 @@ ARK_API_KEY=保留在本地Worker
 
 | 文档 | 用途 |
 | --- | --- |
-| [`docs/error-codes.md`](./docs/error-codes.md) | 错误码参考（71 个） |
+| [`docs/error-codes.md`](./docs/error-codes.md) | 错误码参考 |
 | [`docs/PROJECT_STRUCTURE.md`](./docs/PROJECT_STRUCTURE.md) | 目录结构与维护入口 |
 | [`docs/architecture/`](./docs/architecture/) | Master / Worker / 前端协作协议 |
 | [`docs/deployment/`](./docs/deployment/) | Cloudflare Pages 部署说明 |
 | [`docs/guides/`](./docs/guides/) | 用户指南与演示指南 |
-| [`AGENTS.md`](./AGENTS.md) | 代理协作约定 |
-
-完整操作见：`小白使用说明.md`。
+| [`docs/README.md`](./docs/README.md) | 全部技术、运维与验证文档索引 |
