@@ -2,11 +2,6 @@
 setlocal
 for %%I in ("%~dp0..\..\..") do set "PROJECT_ROOT=%%~fI"
 cd /d "%PROJECT_ROOT%"
-if not exist "%PROJECT_ROOT%\runtime\node.exe" (
-  echo ERROR: runtime\node.exe is missing.
-  pause
-  exit /b 1
-)
-"%PROJECT_ROOT%\runtime\node.exe" "%PROJECT_ROOT%\scripts\test-ark.js"
-echo.
+echo Ark API test is not available in Go backend yet.
+echo Configure ARK_API_KEY in .env and check /api/hackathon/config endpoint.
 pause

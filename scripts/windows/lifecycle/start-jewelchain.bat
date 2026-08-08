@@ -2,10 +2,15 @@
 setlocal EnableExtensions
 for %%I in ("%~dp0..\..\..") do set "PROJECT_ROOT=%%~fI"
 cd /d "%PROJECT_ROOT%"
-title JewelChain Studio v1.3.0
+title JewelChain Studio v1.3.1
 
-if not exist "%PROJECT_ROOT%\runtime\node.exe" (
-  echo ERROR: runtime\node.exe is missing. Extract the ZIP completely.
+if not exist "%PROJECT_ROOT%\jewelchain-server.exe" (
+  echo ERROR: jewelchain-server.exe is missing. Build with: go build -o jewelchain-server.exe ./cmd/jewelchain-server
+  pause
+  exit /b 1
+)
+if not exist "%PROJECT_ROOT%\jewelchain-worker.exe" (
+  echo ERROR: jewelchain-worker.exe is missing. Build with: go build -o jewelchain-worker.exe ./cmd/jewelchain-worker
   pause
   exit /b 1
 )
@@ -23,22 +28,17 @@ if not defined APP_PORT (
   exit /b 1
 )
 
-"%PROJECT_ROOT%\runtime\node.exe" "%PROJECT_ROOT%\scripts\windows\service-manager.js" start "%APP_PORT%"
+call "%PROJECT_ROOT%\scripts\windows\service-manager.bat" start "%APP_PORT%"
 if errorlevel 1 (
-  echo ERROR: Master API failed to start. Run DIAGNOSE_PROJECT.bat.
+  echo ERROR: Master API failed to start. Check logs\jewelchain-server.log.
   pause
   exit /b 1
 )
 
-if exist "%PROJECT_ROOT%\.gold-demo-server.json" (
-  for /f "usebackq delims=" %%P in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "try { $s=Get-Content -Raw '%PROJECT_ROOT%\.gold-demo-server.json' | ConvertFrom-Json; Write-Output $s.port } catch { exit 1 }"`) do set "APP_PORT=%%P"
-)
-
 set "MASTER_BASE_URL=http://127.0.0.1:%APP_PORT%"
-"%PROJECT_ROOT%\runtime\node.exe" "%PROJECT_ROOT%\scripts\windows\worker-service-manager.js" start
+call "%PROJECT_ROOT%\scripts\windows\worker-service-manager.bat" start
 if errorlevel 1 (
-  echo ERROR: Image Worker failed to start.
-  echo Check logs\image-worker.log or run RUN_IMAGE_WORKER.bat.
+  echo ERROR: Image Worker failed to start. Check logs\image-worker.log.
   pause
   exit /b 1
 )
@@ -50,7 +50,7 @@ if not defined EDGE_PATH if exist "%ProgramFiles%\Microsoft\Edge\Application\mse
 if defined EDGE_PATH (start "" "%EDGE_PATH%" --app="%APP_URL%" --start-maximized) else (start "" "%APP_URL%")
 
 echo.
-echo JewelChain Studio v1.3.0 started:
+echo JewelChain Studio v1.3.1 started:
 echo Master UI/API: %APP_URL%
 echo Image Worker: background service
 echo Worker log: %PROJECT_ROOT%\logs\image-worker.log
